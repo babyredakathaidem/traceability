@@ -136,4 +136,15 @@ class ProductController extends Controller
 
         return back()->with('success', 'Đã xóa sản phẩm.');
     }
+    public function show(Request $request, Product $product)
+    {
+        $tenantId = $this->tenantId($request);
+        abort_unless($product->enterprise_id === $tenantId, 403);
+
+        $product->load(['category', 'batches' => fn($q) => $q->withCount('events')->latest()]);
+
+        return Inertia::render('Products/Show', [
+            'product' => $product,
+        ]);
+    }
 }

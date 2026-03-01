@@ -14,6 +14,36 @@ class BatchController extends Controller
         return (int) $request->user()->enterprise_id;
     }
 
+    // ── Prefix map theo category code ────────────────────
+    private const CATEGORY_PREFIX = [
+        'lua_gao'      => 'LG',
+        'rau_qua'      => 'RQ',
+        'thuy_san'     => 'TS',
+        'chan_nuoi'     => 'CN',
+        'thuc_pham_cb' => 'TP',
+        'khac'         => 'KH',
+    ];
+
+    /**
+     * Tự sinh mã lô: {PREFIX}{enterpriseId 2 chữ số}{sequence 3 chữ số}
+     * VD: LG07001, TS02003
+     */
+    private function generateBatchCode(int $tenantId, string $categoryCode): string
+    {
+        $prefix    = self::CATEGORY_PREFIX[$categoryCode] ?? 'KH';
+        $entPart   = str_pad($tenantId, 2, '0', STR_PAD_LEFT);
+        $pattern   = $prefix . $entPart . '%';
+
+        $last = Batch::where('enterprise_id', $tenantId)
+            ->where('code', 'like', $pattern)
+            ->orderByDesc('code')
+            ->value('code');
+
+        $seq  = $last ? (intval(substr($last, -3)) + 1) : 1;
+
+        return $prefix . $entPart . str_pad($seq, 3, '0', STR_PAD_LEFT);
+    }
+
     public function index(Request $request)
     {
         $tenantId  = $this->tenantId($request);
@@ -32,10 +62,19 @@ class BatchController extends Controller
             ->paginate(10)
             ->withQueryString();
 
-        $products = Product::where('enterprise_id', $tenantId)
+        // Load category_code để frontend render prefix preview
+        $products = Product::with('category:id,code')
+            ->where('enterprise_id', $tenantId)
             ->where('status', 'active')
             ->orderBy('name')
-            ->get(['id', 'name', 'gtin', 'category_id']);
+            ->get(['id', 'name', 'gtin', 'category_id'])
+            ->map(fn($p) => [
+                'id'            => $p->id,
+                'name'          => $p->name,
+                'gtin'          => $p->gtin,
+                'category_id'   => $p->category_id,
+                'category_code' => $p->category?->code,
+            ]);
 
         return Inertia::render('Batches/Index', [
             'batches'  => $batches,
@@ -49,9 +88,7 @@ class BatchController extends Controller
         $tenantId = $this->tenantId($request);
 
         $data = $request->validate([
-            'product_id'      => 'nullable|integer|exists:products,id',
-            'code'            => 'required|string|max:50',
-            'product_name'    => 'nullable|string|max:255',
+            'product_id'      => 'required|integer|exists:products,id',
             'description'     => 'nullable|string|max:2000',
             'production_date' => 'nullable|date',
             'expiry_date'     => 'nullable|date|after_or_equal:production_date',
@@ -59,33 +96,32 @@ class BatchController extends Controller
             'unit'            => 'nullable|string|max:50',
         ]);
 
-        // Đảm bảo product_id thuộc đúng tenant
-        if (!empty($data['product_id'])) {
-            $product = Product::where('id', $data['product_id'])
-                ->where('enterprise_id', $tenantId)
-                ->first();
-            if (!$product) {
-                return back()->withErrors(['product_id' => 'Sản phẩm không hợp lệ.']);
-            }
-            // Tự điền product_name từ product nếu không nhập
-            if (empty($data['product_name'])) {
-                $data['product_name'] = $product->name;
-            }
+        // Đảm bảo product thuộc đúng tenant
+        $product = Product::with('category:id,code')
+            ->where('id', $data['product_id'])
+            ->where('enterprise_id', $tenantId)
+            ->first();
+
+        if (!$product) {
+            return back()->withErrors(['product_id' => 'Sản phẩm không hợp lệ.']);
         }
 
-        $exists = Batch::where('enterprise_id', $tenantId)
-            ->where('code', $data['code'])
-            ->exists();
-        if ($exists) {
-            return back()->withErrors(['code' => 'Mã lô đã tồn tại trong doanh nghiệp.']);
-        }
+        // Tự sinh mã lô
+        $code = $this->generateBatchCode($tenantId, $product->category?->code ?? 'khac');
 
         Batch::create([
-            'enterprise_id' => $tenantId,
-            ...$data,
+            'enterprise_id'  => $tenantId,
+            'product_id'     => $product->id,
+            'code'           => $code,
+            'product_name'   => $product->name,
+            'description'    => $data['description'] ?? null,
+            'production_date'=> $data['production_date'] ?? null,
+            'expiry_date'    => $data['expiry_date'] ?? null,
+            'quantity'       => $data['quantity'] ?? null,
+            'unit'           => $data['unit'] ?? null,
         ]);
 
-        return back()->with('success', 'Tạo lô thành công.');
+        return back()->with('success', "Đã tạo lô {$code}.");
     }
 
     public function update(Request $request, Batch $batch)
@@ -94,22 +130,12 @@ class BatchController extends Controller
         abort_unless($batch->enterprise_id === $tenantId, 403);
 
         $data = $request->validate([
-            'code'            => 'required|string|max:50',
-            'product_name'    => 'nullable|string|max:255',
-            'description'     => 'nullable|string|max:2000',
-            'production_date' => 'nullable|date',
-            'expiry_date'     => 'nullable|date|after_or_equal:production_date',
-            'quantity'        => 'nullable|integer|min:1',
-            'unit'            => 'nullable|string|max:50',
+            'description'    => 'nullable|string|max:2000',
+            'production_date'=> 'nullable|date',
+            'expiry_date'    => 'nullable|date|after_or_equal:production_date',
+            'quantity'       => 'nullable|integer|min:1',
+            'unit'           => 'nullable|string|max:50',
         ]);
-
-        $exists = Batch::where('enterprise_id', $tenantId)
-            ->where('code', $data['code'])
-            ->where('id', '!=', $batch->id)
-            ->exists();
-        if ($exists) {
-            return back()->withErrors(['code' => 'Mã lô đã tồn tại trong doanh nghiệp.']);
-        }
 
         $batch->update($data);
 

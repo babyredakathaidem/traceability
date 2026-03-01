@@ -1,10 +1,8 @@
 <!-- resources/js/Components/nav/AppSidebar.vue -->
 <script setup>
 import { computed } from 'vue'
-import { Link, usePage } from '@inertiajs/vue3'
+import { Link, usePage, router} from '@inertiajs/vue3'
 
-// 'hide'    → ẩn hẳn item nếu không có quyền
-// 'disable' → vẫn show nhưng grey out
 const STAFF_MODE = 'hide'
 
 const page = usePage()
@@ -30,16 +28,6 @@ function canAll(required = []) {
   return true
 }
 
-// ── menu definitions ─────────────────────────────────────────
-// item schema:
-// {
-//   label: string
-//   href: string
-//   icon?: string
-//   adminOnly?: boolean          → ẩn hẳn với enterprise_staff
-//   requireAnyPerm?: string[]   → cần ít nhất 1 permission
-//   requireAllPerm?: string[]   → cần tất cả permissions
-// }
 
 const sections = computed(() => {
   // ── SUPER ADMIN ──────────────────────────────────────────
@@ -75,7 +63,7 @@ const sections = computed(() => {
           {
             label: 'Sản phẩm',
             href: '/products',
-            requireAnyPerm: ['enterprise.products.view', 'enterprise.products.manage'],
+            requireAnyPerm: ['enterprise.products.index', 'enterprise.products.manage'],
           },
           {
             label: 'Lô hàng',
@@ -84,7 +72,7 @@ const sections = computed(() => {
           },
           {
             label: 'Sự kiện truy xuất',
-            href: '/trace-events',
+            href: '/events',
             requireAnyPerm: [
               'enterprise.trace_events.view',
               'enterprise.trace_events.create',
