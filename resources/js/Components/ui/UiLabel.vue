@@ -1,0 +1,1 @@
+<template><label class="block text-sm font-medium text-white/70"><slot /></label></template>
