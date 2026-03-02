@@ -1,45 +1,50 @@
 <script setup>
 import { Head, useForm, Link } from '@inertiajs/vue3'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import VietmapPlacePicker from '@/Components/VietmapPlacePicker.vue'
 import QRCode from 'qrcode'
 
 const props = defineProps({
-  batch: Object,
-  qrs: Array,
-  publicUrlBase: String,
+  batch:          Object,
+  qrs:            Array,
+  publicUrlBase:  String,
   privateUrlBase: String,
 })
 
 const publicQr  = computed(() => props.qrs?.find(q => q.type === 'public'))
 const privateQr = computed(() => props.qrs?.find(q => q.type === 'private'))
 
-const publicLink  = computed(() => publicQr.value  ? `${props.publicUrlBase}/${publicQr.value.token}`   : '')
+const publicLink  = computed(() => publicQr.value  ? `${props.publicUrlBase}/${publicQr.value.token}`  : '')
 const privateLink = computed(() => privateQr.value ? `${props.privateUrlBase}/${privateQr.value.token}` : '')
 
-// Vietmap picker state
+// ── Vietmap picker ────────────────────────────────────────
 const place = ref({
-  place_name: publicQr.value?.place_name || '',
-  lat: publicQr.value?.allowed_lat || '',
-  lng: publicQr.value?.allowed_lng || '',
-  refid: '',
+  place_name: publicQr.value?.place_name  || '',
+  lat:        publicQr.value?.allowed_lat || '',
+  lng:        publicQr.value?.allowed_lng || '',
+  refid:      '',
 })
 
-// Forms
+// ── Forms ─────────────────────────────────────────────────
 const formEnsure = useForm({})
 const formPublic = useForm({
-  place_name:      place.value.place_name,
-  allowed_lat:     place.value.lat,
-  allowed_lng:     place.value.lng,
+  place_name:       place.value.place_name,
+  allowed_lat:      place.value.lat,
+  allowed_lng:      place.value.lng,
   allowed_radius_m: publicQr.value?.allowed_radius_m ?? 50,
 })
+
+// Đã lưu cấu hình chưa (dùng để ẩn/hiện form)
+const configSaved = ref(
+  !!(publicQr.value?.place_name && publicQr.value?.allowed_lat && publicQr.value?.allowed_radius_m)
+)
 
 function ensureQrs() {
   formEnsure.post(route('batches.qrs.ensure', props.batch.id))
 }
 
 function syncFromPicker(val) {
-  place.value = val
+  place.value            = val
   formPublic.place_name  = val.place_name
   formPublic.allowed_lat = val.lat
   formPublic.allowed_lng = val.lng
@@ -47,16 +52,34 @@ function syncFromPicker(val) {
 
 function savePublic() {
   if (!publicQr.value) return
-  formPublic.post(route('qrcodes.configurePublic', publicQr.value.id))
+  formPublic.post(route('qrcodes.configurePublic', publicQr.value.id), {
+    onSuccess: () => {
+      configSaved.value    = true
+      showMapPreview.value = false
+      destroyMap('map-preview')
+      // Render map xác nhận sau khi lưu
+      nextTick(() => renderMap(
+        formPublic.allowed_lat,
+        formPublic.allowed_lng,
+        formPublic.allowed_radius_m,
+        'map-saved'
+      ))
+    },
+  })
 }
 
-// QR PNG generation
+function editConfig() {
+  configSaved.value = false
+  nextTick(() => destroyMap('map-saved'))
+}
+
+// ── QR PNG — live update ──────────────────────────────────
 const publicQrPng  = ref('')
 const privateQrPng = ref('')
 
 async function genQrPng(text) {
   if (!text) return ''
-  return await QRCode.toDataURL(text, {
+  return QRCode.toDataURL(text, {
     errorCorrectionLevel: 'M',
     width: 800,
     margin: 2,
@@ -75,14 +98,11 @@ watch([publicLink, privateLink], refreshQrImages)
 function download(dataUrl, filename) {
   if (!dataUrl) return
   const a = document.createElement('a')
-  a.href = dataUrl
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+  a.href = dataUrl; a.download = filename
+  document.body.appendChild(a); a.click(); a.remove()
 }
 
-// Copy link to clipboard
+// ── Copy link ─────────────────────────────────────────────
 const copied = ref(null)
 async function copyLink(text, key) {
   await navigator.clipboard.writeText(text)
@@ -90,7 +110,88 @@ async function copyLink(text, key) {
   setTimeout(() => { copied.value = null }, 2000)
 }
 
-const inputCls = 'w-full bg-black/20 border border-glass rounded-xl px-3 py-2 text-sm text-white/90 outline-none focus:border-brand-500'
+// ── Leaflet map ───────────────────────────────────────────
+const maps = {}
+
+function loadLeaflet() {
+  return new Promise((resolve) => {
+    if (window.L) { resolve(); return }
+    const css = document.createElement('link')
+    css.rel = 'stylesheet'
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(css)
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = resolve
+    document.head.appendChild(script)
+  })
+}
+
+async function renderMap(lat, lng, radiusM, mapId) {
+  if (!lat || !lng || !radiusM) return
+  await loadLeaflet()
+  await nextTick()
+  const el = document.getElementById(mapId)
+  if (!el) return
+  if (maps[mapId]) { maps[mapId].remove(); delete maps[mapId] }
+  const L   = window.L
+  const map = L.map(el, { zoomControl: true, scrollWheelZoom: false })
+  maps[mapId] = map
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19,
+  }).addTo(map)
+  const center = [parseFloat(lat), parseFloat(lng)]
+  const r = parseInt(radiusM)
+  L.marker(center).addTo(map)
+  L.circle(center, {
+    radius: r, color: '#f97316', fillColor: '#f97316',
+    fillOpacity: 0.15, weight: 2,
+  }).addTo(map)
+  map.setView(center, r < 100 ? 18 : r < 500 ? 16 : 14)
+}
+
+function destroyMap(mapId) {
+  if (maps[mapId]) { maps[mapId].remove(); delete maps[mapId] }
+}
+
+// Hiện map preview tự động khi đủ lat + lng + radius
+const showMapPreview = ref(false)
+
+watch(
+  () => [formPublic.allowed_radius_m, formPublic.allowed_lat, formPublic.allowed_lng],
+  ([r, lat, lng]) => {
+    if (r && lat && lng) {
+      showMapPreview.value = true
+      nextTick(() => renderMap(lat, lng, r, 'map-preview'))
+    } else {
+      showMapPreview.value = false
+      destroyMap('map-preview')
+    }
+  }
+)
+
+// Render map saved khi mount nếu đã có config
+onMounted(() => {
+  if (configSaved.value && publicQr.value?.allowed_lat) {
+    nextTick(() => renderMap(
+      publicQr.value.allowed_lat,
+      publicQr.value.allowed_lng,
+      publicQr.value.allowed_radius_m,
+      'map-saved'
+    ))
+  }
+})
+
+onUnmounted(() => {
+  Object.keys(maps).forEach(id => { maps[id]?.remove(); delete maps[id] })
+})
+
+function confirmMapPreview() {
+  showMapPreview.value = false
+  destroyMap('map-preview')
+}
+
+const inputCls = 'w-full bg-black/20 border border-glass rounded-xl px-3 py-2 text-sm text-white/90 outline-none focus:border-brand-500 appearance-none'
 </script>
 
 <template>
@@ -128,7 +229,7 @@ const inputCls = 'w-full bg-black/20 border border-glass rounded-xl px-3 py-2 te
 
     <div v-if="!publicQr && !privateQr"
       class="rounded-2xl border border-glass bg-black/20 p-8 text-center text-white/40 text-sm">
-      Chua co QR nao. Bam "Tao 2 QR" de tao QR public va private cho lo nay.
+      Chưa có QR nào. Nhấn "Tạo 2 QR" để tạo QR public và private cho lô hàng này.
     </div>
 
     <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -138,7 +239,7 @@ const inputCls = 'w-full bg-black/20 border border-glass rounded-xl px-3 py-2 te
         <div class="flex items-center justify-between">
           <div>
             <div class="text-xs text-white/40 uppercase tracking-wider">QR Public</div>
-            <p class="text-sm text-white/60 mt-0.5">Dat tai quay trung bay / diem ban</p>
+            <p class="text-sm text-white/60 mt-0.5">Đặt tại quầy trung bay / điểm bán</p>
           </div>
           <span class="text-xs px-2 py-0.5 rounded-full border border-brand-500/40 bg-brand-500/10 text-brand-300">
             PUBLIC
@@ -174,31 +275,55 @@ const inputCls = 'w-full bg-black/20 border border-glass rounded-xl px-3 py-2 te
                 {{ copied === 'public' ? 'Da sao chep!' : 'Sao chep link' }}
               </button>
               <div v-if="publicQr.place_name" class="bg-white/5 rounded-xl p-2 text-xs">
-                <p class="text-white/40">Vi tri: {{ publicQr.place_name }}</p>
-                <p class="text-white/40">Ban kinh: {{ publicQr.allowed_radius_m }}m</p>
+                <p class="text-white/40">Vị trí: {{ publicQr.place_name }}</p>
+                <p class="text-white/40">Bán Kính: {{ publicQr.allowed_radius_m }}m</p>
               </div>
               <div v-else class="bg-orange-500/10 border border-orange-500/30 rounded-xl p-2 text-xs text-orange-400">
-                Chua cau hinh vi tri phat hanh
+                Chưa cấu hình vị trí phát hành
               </div>
             </div>
           </div>
 
           <!-- Config form -->
-          <div class="border-t border-white/5 pt-4 space-y-3">
-            <p class="text-xs text-white/40 uppercase tracking-wider">Cau hinh vi tri phat hanh</p>
+          <!-- Map sau khi lưu xong -->
+          <div v-if="configSaved && publicQr.allowed_lat" class="space-y-2">
+            <div id="map-saved" class="w-full h-48 rounded-xl overflow-hidden border border-green-500/20"></div>
+            <p class="text-xs text-white/30 text-center">
+              Vùng hợp lệ quét QR — bán kính {{ publicQr.allowed_radius_m }}m
+            </p>
+            <button @click="editConfig"
+              class="w-full py-1.5 text-xs border border-glass rounded-xl text-white/50 hover:bg-white/5 transition">
+              Chỉnh sửa cấu hình
+            </button>
+          </div>
+
+          <!-- Config form — ẩn khi đã lưu -->
+          <div v-if="!configSaved" class="border-t border-white/5 pt-4 space-y-3">
+            <p class="text-xs text-white/40 uppercase tracking-wider">Cấu hình vị trí phát hành</p>
             <VietmapPlacePicker :modelValue="place" @update:modelValue="syncFromPicker" />
             <div>
-              <label class="text-xs text-white/50 block mb-1">Ban kinh hop le (met)</label>
-              <input type="number" v-model="formPublic.allowed_radius_m" :class="inputCls" min="1" max="5000" />
+              <label class="text-xs text-white/50 block mb-1">Bán kính hợp lệ (mét)</label>
+              <input type="number" v-model="formPublic.allowed_radius_m"
+                :class="inputCls" min="1" max="5000" placeholder="VD: 100" />
             </div>
-            <button
-              :disabled="formPublic.processing"
-              @click="savePublic"
+
+            <!-- Map preview tự động khi đủ dữ liệu -->
+            <div v-if="showMapPreview"
+              class="rounded-xl border border-brand-500/30 bg-brand-500/5 p-3 space-y-2">
+              <p class="text-xs text-brand-400 font-semibold">Xem trước vùng hợp lệ</p>
+              <div id="map-preview" class="w-full h-48 rounded-xl overflow-hidden"></div>
+              <button @click="confirmMapPreview"
+                class="w-full py-2 text-sm rounded-xl bg-white/10 border border-glass text-white/80 hover:bg-white/15 transition font-semibold">
+                OK — Xác nhận vị trí
+              </button>
+            </div>
+
+            <button :disabled="formPublic.processing" @click="savePublic"
               class="w-full py-2 text-sm rounded-xl bg-brand-500 text-cosmic-950 font-semibold hover:bg-brand-600 transition disabled:opacity-50">
-              Luu cau hinh
+              {{ formPublic.processing ? 'Đang lưu...' : 'Lưu cấu hình' }}
             </button>
             <p class="text-xs text-white/30">
-              QR public chi xem duoc khi nguoi quet dung trong ban kinh quanh toa do phat hanh.
+              QR public chỉ hợp lệ khi người quét đứng trong bán kính quanh tọa độ phát hành.
             </p>
           </div>
         </template>

@@ -14,7 +14,7 @@ const nav = [
         <img src="/brand/state-logo.png" alt="Logo" class="h-12 w-12 object-contain" onerror="this.style.display='none';" />
         <div class="leading-tight">
           <div class="text-sm font-semibold uppercase text-white/90">AGU TRACEABILITY</div>
-          <div class="text-[11px] text-white/60 uppercase">HỆ THỐNG TRUY XUẤT NGUỒN GỐC HÀNG HOÁ</div>
+          <div class="text-[11px] text-white/60 uppercase">HỆ THỐNG TRUY XUẤT NGUỒN GỐC SẢN PHÂM HÀNG HOÁ THEO TIÊU CHUẨN QUỐC GIA</div>
         </div>
       </div>
 

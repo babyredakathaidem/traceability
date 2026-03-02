@@ -13,6 +13,10 @@ use App\Http\Controllers\QrAdminController;
 use App\Http\Controllers\QrScanController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\BatchRecallController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\PublicController;
+
+
 
 // Onboarding
 use App\Http\Controllers\OnboardingEnterpriseController;
@@ -30,14 +34,10 @@ use App\Http\Controllers\Sys\EnterpriseApprovalController;
 | Public (no auth)
 |--------------------------------------------------------------------------
 */
-Route::get('/', function () {
-    return Inertia::render('Dashboard', [
-        'canLogin'       => Route::has('login'),
-        'canRegister'    => Route::has('register'),
-        'laravelVersion' => Application::VERSION,
-        'phpVersion'     => PHP_VERSION,
-    ]);
-})->name('home');
+Route::get('/', [PublicController::class, 'home'])->name('home');
+Route::get('/san-pham', [PublicController::class, 'products'])->name('public.products');
+Route::get('/categories', [PublicController::class, 'categories'])->name('public.categories'); // redirect -> /san-pham
+Route::get('/verify', [PublicController::class, 'verify'])->name('public.verify');
 
 // QR public gates
 Route::get('/t/{token}', [QrScanController::class, 'gatePublic'])->name('trace.gate.public');
@@ -79,9 +79,9 @@ Route::middleware(['auth'])->group(function () {
 | Dashboard (auth + verified + tenant.ready)
 |--------------------------------------------------------------------------
 */
-Route::get('/dashboard', function () {
-    return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified', 'tenant.ready'])->name('dashboard');
+Route::get('/dashboard', [DashboardController::class, 'index'])
+    ->middleware(['auth', 'verified', 'tenant.ready', 'tenant'])
+    ->name('dashboard');
 
 /*
 |--------------------------------------------------------------------------

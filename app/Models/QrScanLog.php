@@ -19,4 +19,8 @@ class QrScanLog extends Model
     protected $casts = [
         'scanned_at' => 'datetime',
     ];
+    public function batch()
+    {
+        return $this->belongsTo(Batch::class);
+    }
 }

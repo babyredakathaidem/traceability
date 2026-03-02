@@ -43,4 +43,8 @@ class BatchRecall extends Model
     {
         return $this->status === 'active';
     }
+    public function recaller()
+    {
+        return $this->belongsTo(User::class, 'recalled_by');
+    }
 }

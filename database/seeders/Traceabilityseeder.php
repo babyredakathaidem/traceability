@@ -78,12 +78,12 @@ class TraceabilitySeeder extends Seeder
     private function seedCategories(): void
     {
         $categories = [
-            ['code' => 'lua_gao',     'name_vi' => 'Lúa gạo',               'icon' => '🌾', 'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 1],
-            ['code' => 'rau_qua',     'name_vi' => 'Rau quả tươi',           'icon' => '🥬', 'tcvn_ref' => 'TCVN 12827:2023', 'sort_order' => 2],
-            ['code' => 'thuy_san',    'name_vi' => 'Thủy sản',               'icon' => '🐟', 'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 3],
-            ['code' => 'chan_nuoi',   'name_vi' => 'Chăn nuôi / Thịt',       'icon' => '🐄', 'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 4],
-            ['code' => 'thuc_pham_cb','name_vi' => 'Thực phẩm chế biến',     'icon' => '🏭', 'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 5],
-            ['code' => 'khac',        'name_vi' => 'Khác',                    'icon' => '📦', 'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 6],
+            ['code' => 'lua_gao',     'name_vi' => 'Lúa gạo',               'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 1],
+            ['code' => 'rau_qua',     'name_vi' => 'Rau quả tươi',          'tcvn_ref' => 'TCVN 12827:2023', 'sort_order' => 2],
+            ['code' => 'thuy_san',    'name_vi' => 'Thủy sản',              'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 3],
+            ['code' => 'chan_nuoi',   'name_vi' => 'Chăn nuôi / Thịt',      'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 4],
+            ['code' => 'thuc_pham_cb','name_vi' => 'Thực phẩm chế biến',    'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 5],
+            ['code' => 'khac',        'name_vi' => 'Khác',                  'tcvn_ref' => 'TCVN 12850:2019', 'sort_order' => 6],
         ];
 
         foreach ($categories as $cat) {

@@ -67,18 +67,17 @@ async function pick(item) {
   <div class="space-y-2">
     <label class="text-sm font-medium">Tên địa điểm</label>
     <input
-      class="w-full border rounded-xl px-3 py-2"
-      v-model="q"
+    class="w-full border border-glass rounded-xl px-3 py-2 bg-black/20 text-white/90 placeholder:text-white/30 outline-none focus:border-brand-500"
+    v-model="q"
       @input="onInput"
       placeholder="Gõ địa điểm (VD: Co.opmart Long Xuyên...)"
     />
-
-    <div v-if="suggestions.length" class="border rounded-xl overflow-hidden bg-white">
+    <div v-if="suggestions.length" class="border border-glass rounded-xl overflow-hidden bg-cosmic-900">
       <button
         v-for="s in suggestions"
         :key="s.refid"
         type="button"
-        class="w-full text-left px-3 py-2 hover:bg-gray-50"
+        class="w-full text-left px-3 py-2 hover:bg-orange-400"
         @click="pick(s)"
       >
         {{ s.display }}
@@ -88,11 +87,11 @@ async function pick(item) {
     <div class="grid grid-cols-2 gap-3">
       <div>
         <label class="text-sm font-medium">Tọa độ X (lat)</label>
-        <input class="w-full border rounded-xl px-3 py-2" :value="props.modelValue.lat" readonly />
+        <input class="w-full border border-glass rounded-xl px-3 py-2 bg-black/20 text-white/70 outline-none" :value="props.modelValue.lat" readonly />
       </div>
       <div>
         <label class="text-sm font-medium">Tọa độ Y (lng)</label>
-        <input class="w-full border rounded-xl px-3 py-2" :value="props.modelValue.lng" readonly />
+        <input class="w-full border border-glass rounded-xl px-3 py-2 bg-black/20 text-white/70 outline-none" :value="props.modelValue.lng" readonly />
       </div>
     </div>
 
