@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\ProductCategory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class ProductController extends Controller
@@ -45,14 +46,25 @@ class ProductController extends Controller
         $tenantId = $this->tenantId($request);
 
         $data = $request->validate([
-            'name'        => 'required|string|max:255',
-            'category_id' => 'required|integer|exists:product_categories,id',
-            'gtin'        => ['nullable', 'string', 'max:14', 'regex:/^\d{8,14}$/'],
-            'description' => 'nullable|string|max:2000',
-            'unit'        => 'nullable|string|max:50',
-            'status'      => 'required|in:active,inactive',
-            'image'       => 'nullable|file|image|max:5120',
+            'name'                 => 'required|string|max:255',
+            'category_id'          => 'required',
+            'custom_category_name' => 'nullable|string|max:100',
+            'gtin'                 => ['nullable', 'string', 'max:14', 'regex:/^\d{8,14}$/'],
+            'description'          => 'nullable|string|max:2000',
+            'unit'                 => 'nullable|string|max:50',
+            'status'               => 'required|in:active,inactive',
+            'image'                => 'nullable|file|image|max:5120',
         ]);
+
+        // Xử lý danh mục tùy chỉnh
+        $categoryId = $this->resolveCategoryId(
+            $data['category_id'],
+            $data['custom_category_name'] ?? null
+        );
+
+        if (!$categoryId) {
+            return back()->withErrors(['category_id' => 'Danh mục không hợp lệ.']);
+        }
 
         if (!empty($data['gtin'])) {
             $exists = Product::where('enterprise_id', $tenantId)
@@ -70,7 +82,7 @@ class ProductController extends Controller
 
         Product::create([
             'enterprise_id' => $tenantId,
-            'category_id'   => $data['category_id'],
+            'category_id'   => $categoryId,
             'name'          => $data['name'],
             'gtin'          => $data['gtin'] ?? null,
             'description'   => $data['description'] ?? null,
@@ -84,21 +96,30 @@ class ProductController extends Controller
 
     public function update(Request $request, Product $product)
     {
-        $tenantId = $this->tenantId($request);
-        abort_unless($product->enterprise_id === $tenantId, 403);
+        abort_unless($product->enterprise_id === $this->tenantId($request), 403);
 
         $data = $request->validate([
-            'name'        => 'required|string|max:255',
-            'category_id' => 'required|integer|exists:product_categories,id',
-            'gtin'        => ['nullable', 'string', 'max:14', 'regex:/^\d{8,14}$/'],
-            'description' => 'nullable|string|max:2000',
-            'unit'        => 'nullable|string|max:50',
-            'status'      => 'required|in:active,inactive',
-            'image'       => 'nullable|file|image|max:5120',
+            'name'                 => 'required|string|max:255',
+            'category_id'          => 'required',
+            'custom_category_name' => 'nullable|string|max:100',
+            'gtin'                 => ['nullable', 'string', 'max:14', 'regex:/^\d{8,14}$/'],
+            'description'          => 'nullable|string|max:2000',
+            'unit'                 => 'nullable|string|max:50',
+            'status'               => 'required|in:active,inactive',
+            'image'                => 'nullable|file|image|max:5120',
         ]);
 
+        $categoryId = $this->resolveCategoryId(
+            $data['category_id'],
+            $data['custom_category_name'] ?? null
+        );
+
+        if (!$categoryId) {
+            return back()->withErrors(['category_id' => 'Danh mục không hợp lệ.']);
+        }
+
         if (!empty($data['gtin'])) {
-            $exists = Product::where('enterprise_id', $tenantId)
+            $exists = Product::where('enterprise_id', $product->enterprise_id)
                 ->where('gtin', $data['gtin'])
                 ->where('id', '!=', $product->id)
                 ->exists();
@@ -107,25 +128,33 @@ class ProductController extends Controller
             }
         }
 
+        $imagePath = $product->image_path;
         if ($request->hasFile('image')) {
-            if ($product->image_path) {
-                Storage::disk('public')->delete($product->image_path);
+            if ($imagePath) {
+                Storage::disk('public')->delete($imagePath);
             }
-            $data['image_path'] = $request->file('image')->store("products/{$tenantId}", 'public');
+            $imagePath = $request->file('image')->store("products/{$product->enterprise_id}", 'public');
         }
 
-        $product->update($data);
+        $product->update([
+            'category_id' => $categoryId,
+            'name'        => $data['name'],
+            'gtin'        => $data['gtin'] ?? null,
+            'description' => $data['description'] ?? null,
+            'unit'        => $data['unit'] ?? null,
+            'status'      => $data['status'],
+            'image_path'  => $imagePath,
+        ]);
 
         return back()->with('success', 'Đã cập nhật sản phẩm.');
     }
 
     public function destroy(Request $request, Product $product)
     {
-        $tenantId = $this->tenantId($request);
-        abort_unless($product->enterprise_id === $tenantId, 403);
+        abort_unless($product->enterprise_id === $this->tenantId($request), 403);
 
         if ($product->batches()->exists()) {
-            return back()->withErrors(['error' => 'Không thể xóa sản phẩm đang có lô hàng liên kết.']);
+            return back()->withErrors(['product' => 'Không thể xóa sản phẩm đã có lô hàng.']);
         }
 
         if ($product->image_path) {
@@ -133,18 +162,51 @@ class ProductController extends Controller
         }
 
         $product->delete();
-
         return back()->with('success', 'Đã xóa sản phẩm.');
     }
+
     public function show(Request $request, Product $product)
     {
         $tenantId = $this->tenantId($request);
         abort_unless($product->enterprise_id === $tenantId, 403);
-
-        $product->load(['category', 'batches' => fn($q) => $q->withCount('events')->latest()]);
-
-        return Inertia::render('Products/Show', [
-            'product' => $product,
+        $product->load([
+            'category',
+            'batches' => fn($q) => $q->withCount('events')->latest(),
         ]);
+        return Inertia::render('Products/Show', ['product' => $product]);
+    }
+
+    // ── Private helpers ───────────────────────────────────
+
+    /**
+     * Xử lý category_id:
+     * - Nếu là số và tồn tại trong DB: dùng luôn
+     * - Nếu có custom_category_name: tạo danh mục mới, trả về id mới
+     */
+    private function resolveCategoryId(mixed $categoryId, ?string $customName): ?int
+    {
+        // Nếu có tên tùy chỉnh → tạo danh mục mới
+        if (!empty(trim((string) $customName))) {
+            $name = trim($customName);
+            $code = 'custom_' . Str::slug($name, '_') . '_' . substr(md5($name . time()), 0, 6);
+
+            $newCategory = ProductCategory::create([
+                'code'       => $code,
+                'name_vi'    => $name,
+                'icon'       => null,
+                'tcvn_ref'   => null,
+                'sort_order' => 99,
+            ]);
+
+            return $newCategory->id;
+        }
+
+        // Dùng category_id truyền lên
+        $id = (int) $categoryId;
+        if ($id > 0 && ProductCategory::where('id', $id)->exists()) {
+            return $id;
+        }
+
+        return null;
     }
 }

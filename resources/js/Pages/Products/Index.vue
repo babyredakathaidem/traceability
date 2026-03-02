@@ -47,22 +47,17 @@ const headers = [
 const showCreate = ref(false)
 
 const createForm = useForm({
-  name:           '',
-  category_id:    '',
-  category_other: '',
-  gtin:           '',
-  description:    '',
-  unit:           '',
-  status:         'active',
-  image:          null,
+  name:                 '',
+  category_id:          '',
+  custom_category_name: '',
+  gtin:                 '',
+  description:          '',
+  unit:                 '',
+  status:               'active',
+  image:                null,
 })
 
 const submitCreate = () => {
-  // Nếu chọn "Khác", ghi tên tự điền vào description
-  const form = { ...createForm }
-  if (createForm.category_id == khacId.value && createForm.category_other) {
-    createForm.description = `[Danh mục: ${createForm.category_other}]${createForm.description ? ' ' + createForm.description : ''}`
-  }
   createForm.post(route('products.store'), {
     forceFormData: true,
     onSuccess: () => { showCreate.value = false; createForm.reset(); createForm.clearErrors() },
@@ -74,21 +69,21 @@ const showEdit = ref(false)
 const editing  = ref(null)
 
 const editForm = useForm({
-  name:           '',
-  category_id:    '',
-  category_other: '',
-  gtin:           '',
-  description:    '',
-  unit:           '',
-  status:         'active',
-  image:          null,
+  name:                 '',
+  category_id:          '',
+  custom_category_name: '',
+  gtin:                 '',
+  description:          '',
+  unit:                 '',
+  status:               'active',
+  image:                null,
 })
 
 const openEdit = (p) => {
   editing.value          = p
   editForm.name          = p.name
   editForm.category_id   = p.category_id ?? ''
-  editForm.category_other= ''
+  editForm.custom_category_name = ''
   editForm.gtin          = p.gtin ?? ''
   editForm.description   = p.description ?? ''
   editForm.unit          = p.unit ?? ''
@@ -99,9 +94,6 @@ const openEdit = (p) => {
 
 const submitEdit = () => {
   if (!editing.value) return
-  if (editForm.category_id == khacId.value && editForm.category_other) {
-    editForm.description = `[Danh mục: ${editForm.category_other}]${editForm.description ? ' ' + editForm.description : ''}`
-  }
   editForm.post(route('products.update', editing.value.id), {
     forceFormData: true,
     onSuccess: () => { showEdit.value = false; editing.value = null; editForm.clearErrors() },
@@ -210,7 +202,7 @@ const nextPage = () => { if (paginator.value?.next_page_url) router.visit(pagina
       <UiInput
         v-if="createForm.category_id == khacId"
         label="Nhập tên danh mục cụ thể"
-        v-model="createForm.category_other"
+        v-model="createForm.custom_category_name"
         placeholder="VD: Gia vị, Đồ uống..."
       />
 
@@ -258,7 +250,7 @@ const nextPage = () => { if (paginator.value?.next_page_url) router.visit(pagina
       <UiInput
         v-if="editForm.category_id == khacId"
         label="Nhập tên danh mục cụ thể"
-        v-model="editForm.category_other"
+        v-model="editForm.custom_category_name"
         placeholder="VD: Gia vị, Đồ uống..."
       />
 

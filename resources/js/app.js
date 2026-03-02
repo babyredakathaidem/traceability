@@ -56,4 +56,4 @@ createInertiaApp({
     vueApp.use(ZiggyVue, window.Ziggy)
     vueApp.mount(el)
   },
-})
+})  
