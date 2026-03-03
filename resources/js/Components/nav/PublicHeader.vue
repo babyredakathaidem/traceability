@@ -19,7 +19,7 @@ const nav = [
       </div>
 
       <div class="flex items-center gap-3">
-        <a href="/onboarding/enterprise" class="px-4 py-2 rounded-lg border border-glass text-sm font-medium text-white/90 hover:border-brand-500/60 hover:text-brand-200 transition">
+        <a href="/register" class="px-4 py-2 rounded-lg border border-glass text-sm font-medium text-white/90 hover:border-brand-500/60 hover:text-brand-200 transition">
           Đăng ký
         </a>
         <a href="/login" class="px-4 py-2 rounded-lg bg-brand-500 text-cosmic-950 text-sm font-extrabold hover:bg-brand-600 transition">

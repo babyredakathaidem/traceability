@@ -50,7 +50,7 @@ const inputCls =
 
     <div class="text-center text-sm text-white/60">
       Chưa có tài khoản?
-      <a href="/onboarding/enterprise" class="text-brand-300 hover:underline font-semibold">Đăng ký ngay</a>
+      <a href="/register" class="text-brand-300 hover:underline font-semibold">Đăng ký ngay</a>
     </div>
   </form>
 </template>

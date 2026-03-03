@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use App\Mail\EnterpriseBlockedMail;
 
 class EnterpriseApprovalController extends Controller
 {
@@ -81,5 +82,36 @@ class EnterpriseApprovalController extends Controller
         }
 
         return back()->with('success', 'Đã từ chối doanh nghiệp.');
+    }
+    public function block(Request $request, Enterprise $enterprise)
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $enterprise->update([
+            'status'        => 'blocked',
+            'blocked_at'    => now(),
+            'blocked_by'    => $request->user()->id,
+            'blocked_reason'=> $data['reason'],
+        ]);
+
+        if ($enterprise->email) {
+            Mail::to($enterprise->email)->queue(new EnterpriseBlockedMail($enterprise));
+        }
+
+        return back()->with('success', 'Đã khóa doanh nghiệp.');
+    }
+
+    public function unblock(Request $request, Enterprise $enterprise)
+    {
+        $enterprise->update([
+            'status'         => 'approved',
+            'blocked_at'     => null,
+            'blocked_by'     => null,
+            'blocked_reason' => null,
+        ]);
+
+        return back()->with('success', 'Đã mở khóa doanh nghiệp.');
     }
 }

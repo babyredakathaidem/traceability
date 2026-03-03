@@ -60,6 +60,8 @@ const createForm = useForm({
 const submitCreate = () => {
   createForm.post(route('products.store'), {
     forceFormData: true,
+    preserveState: true,
+    preserveScroll: true,
     onSuccess: () => { showCreate.value = false; createForm.reset(); createForm.clearErrors() },
   })
 }
@@ -96,6 +98,8 @@ const submitEdit = () => {
   if (!editing.value) return
   editForm.post(route('products.update', editing.value.id), {
     forceFormData: true,
+    preserveState: true,
+    preserveScroll: true,
     onSuccess: () => { showEdit.value = false; editing.value = null; editForm.clearErrors() },
   })
 }

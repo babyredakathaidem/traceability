@@ -37,7 +37,7 @@ class RegisteredUserController extends Controller
         event(new Registered($user));
         Auth::login($user);
 
-        // ── Sau register luôn bắt đăng ký DN
-        return redirect()->route('onboarding.enterprise.create');
+
+        return redirect()->route('verification.notice');
     }
 }

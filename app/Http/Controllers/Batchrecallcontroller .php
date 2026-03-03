@@ -7,6 +7,9 @@ use App\Models\BatchRecall;
 use App\Models\TraceEvent;
 use App\Services\IpfsService;
 use Illuminate\Http\Request;
+use App\Mail\BatchRecalledMail;
+use App\Models\User;
+use Illuminate\Support\Facades\Mail;
 
 class BatchRecallController extends Controller
 {
@@ -43,6 +46,12 @@ class BatchRecallController extends Controller
 
         // 2. Cập nhật trạng thái lô
         $batch->update(['status' => 'recalled']);
+            $adminUsers = User::where('enterprise_id', $tenantId)
+            ->where('role', 'enterprise_admin')
+            ->get();
+        foreach ($adminUsers as $admin) {
+            Mail::to($admin->email)->queue(new BatchRecalledMail($batch, $recall));
+        }
 
         // 3. Ghi sự kiện đặc biệt type=recall lên IPFS (minh bạch lý do thu hồi)
         $batch->load('enterprise', 'product');

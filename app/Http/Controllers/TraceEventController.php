@@ -9,6 +9,8 @@ use App\Services\IpfsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use App\Mail\EventPublishedMail;
+use Illuminate\Support\Facades\Mail;
 
 class TraceEventController extends Controller
 {
@@ -261,7 +263,7 @@ class TraceEventController extends Controller
             'published_at' => now(),
             'published_by' => $request->user()->id,
         ]);
-
+        Mail::to($request->user()->email)->queue(new EventPublishedMail($event->fresh(['batch.product'])));
         $mock = $ipfsResult['mock'] ? ' (MOCK - chưa cấu hình Pinata key)' : '';
         return back()->with('success', "Publish IPFS thành công{$mock}! CID: {$ipfsResult['cid']}");
     }

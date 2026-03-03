@@ -52,7 +52,9 @@ class EnsureEnterprise
         if ($status === 'rejected') {
             return redirect()->route('onboarding.enterprise.rejected');
         }
-
+        if ($status === 'blocked') {
+            return redirect()->route('onboarding.enterprise.blocked');
+        }
         // approved -> cho qua
         return $next($request);
     }

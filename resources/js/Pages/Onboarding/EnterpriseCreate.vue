@@ -186,6 +186,12 @@ const submit = ()=> form.post('/onboarding/enterprise', { forceFormData:true, pr
           class="w-full rounded-lg bg-brand-500 text-cosmic-950 font-extrabold py-2.5 hover:bg-brand-600 transition disabled:opacity-50 disabled:cursor-not-allowed">
           {{ form.processing ? 'Đang đăng ký...' : 'ĐĂNG KÝ' }}
         </button>
+        <div class="mt-3 text-center">
+        <a href="/"
+          class="text-sm text-white/30 hover:text-white/60 transition underline underline-offset-2">
+          Bỏ qua
+        </a>
+      </div>
         <div class="mt-3 text-center text-sm text-white/60">
           Bạn đã có tài khoản? <a href="/login" class="text-brand-300 hover:underline font-semibold">Đăng nhập</a>
         </div>

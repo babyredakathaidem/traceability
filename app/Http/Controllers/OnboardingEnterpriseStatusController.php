@@ -100,4 +100,17 @@ class OnboardingEnterpriseStatusController extends Controller
             ],
         ]);
     }
+    public function blocked(Request $request)
+    {
+        $enterprise = Enterprise::find($request->user()->enterprise_id);
+
+        if (!$enterprise || $enterprise->status !== 'blocked') {
+            return redirect()->route('dashboard');
+        }
+
+        return Inertia::render('Onboarding/EnterpriseBlocked', [
+            'blocked_reason' => $enterprise->blocked_reason,
+            'enterprise'     => ['name' => $enterprise->name],
+        ]);
+    }
 }

@@ -13,6 +13,16 @@ const props = defineProps({
   enterprises: Object,
 })
 
+const blockingId     = ref(null)
+const blockReason    = ref('')
+
+const openBlock  = (id) => { blockingId.value = id; blockReason.value = '' }
+const submitBlock = () => {
+  router.post(route('sys.enterprises.block', blockingId.value), { reason: blockReason.value })
+  blockingId.value = null
+}
+const unblock = (id) => router.post(route('sys.enterprises.unblock', id))
+
 const activeStatus = computed(() => props.status || 'pending')
 
 const headers = [
@@ -105,12 +115,17 @@ const pillCls = (s) =>
               <UiButton variant="outline" size="sm">Xem</UiButton>
             </Link>
 
-            <UiButton v-if="e.status !== 'approved'" size="sm" @click="approve(e.id)">
+            <UiButton v-if="e.status === 'pending'" size="sm" @click="approve(e.id)">
               Approve
             </UiButton>
-
-            <UiButton v-if="e.status !== 'rejected'" variant="danger" size="sm" @click="openReject(e.id)">
+            <UiButton v-if="e.status === 'pending'" variant="danger" size="sm" @click="openReject(e.id)">
               Reject
+            </UiButton>
+            <UiButton v-if="e.status === 'approved'" variant="danger" size="sm" @click="openBlock(e.id)">
+              Block
+            </UiButton>
+            <UiButton v-if="e.status === 'blocked'" size="sm" @click="unblock(e.id)">
+              Unblock
             </UiButton>
           </div>
         </td>
@@ -123,6 +138,13 @@ const pillCls = (s) =>
     <template #actions>
       <UiButton variant="outline" size="sm" @click="rejectingId=null">Hủy</UiButton>
       <UiButton variant="danger" size="sm" @click="submitReject">Gửi từ chối</UiButton>
+    </template>
+  </UiModal>
+  <UiModal :show="!!blockingId" title="Lý do khóa doanh nghiệp" @close="blockingId=null">
+    <UiInput label="Nhập lý do khóa" v-model="blockReason" placeholder="VD: Vi phạm điều khoản sử dụng..." />
+    <template #actions>
+      <UiButton variant="outline" size="sm" @click="blockingId=null">Hủy</UiButton>
+      <UiButton variant="danger" size="sm" @click="submitBlock">Xác nhận khóa</UiButton>
     </template>
   </UiModal>
 </template>

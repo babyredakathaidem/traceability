@@ -35,16 +35,16 @@ const props = defineProps({
             </div>
             <div>
               <div class="font-extrabold leading-tight text-white">AGU Traceability</div>
-              <div class="text-xs text-white/70">Truy xuất nguồn gốc • Chống giả</div>
+              <div class="text-xs text-white/70">Truy xuất nguồn gốc - Chống giả</div>
             </div>
           </div>
 
           <div class="mt-10">
             <div class="text-2xl font-black leading-snug text-white">
-              Quản lý lô • Sự kiện • QR • Cảnh báo
+              Quản lý lô - Sự kiện - QR - Cảnh báo
             </div>
             <div class="mt-3 text-sm text-white/70">
-              Multi-tenant: cách ly dữ liệu theo doanh nghiệp. Truy xuất công khai bằng QR.
+              Nhiều Doanh nghiệp dùng chung. Truy xuất công khai bằng QR.
             </div>
           </div>
 
@@ -65,7 +65,7 @@ const props = defineProps({
             <!-- ✅ Title only once -->
             <div class="mb-5">
               <h1 class="text-3xl font-extrabold text-brand-300">
-                {{ props.title || 'Xác thực' }}
+                {{ props.title || 'AGU Traceability' }}
               </h1>
               <p v-if="props.subtitle" class="mt-2 text-sm text-white/60">
                 {{ props.subtitle }}

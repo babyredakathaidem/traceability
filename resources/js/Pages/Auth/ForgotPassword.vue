@@ -1,68 +1,48 @@
 <script setup>
-import GuestLayout from '@/Layouts/GuestLayout.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3'
 
 defineProps({
-    status: {
-        type: String,
-    },
-});
+  status: { type: String, default: null },
+})
 
-const form = useForm({
-    email: '',
-});
+const form = useForm({ email: '' })
+const submit = () => form.post(route('password.email'))
 
-const submit = () => {
-    form.post(route('password.email'));
-};
+const inputCls =
+  'mt-2 w-full rounded-lg border border-glass bg-black/25 px-4 py-2.5 text-white/90 placeholder:text-white/40 ' +
+  'focus:border-brand-500/60 focus:ring-brand-500/20 hover:border-brand-500/30 transition'
 </script>
 
 <template>
-    <GuestLayout>
-        <Head title="Forgot Password" />
+  <Head title="Quên mật khẩu" />
 
-        <div class="mb-4 text-sm text-gray-600">
-            Forgot your password? No problem. Just let us know your email
-            address and we will email you a password reset link that will allow
-            you to choose a new one.
-        </div>
+  <div class="mb-6">
+    <div class="text-2xl font-black text-white/90">Quên mật khẩu?</div>
+    <div class="text-sm text-white/50 mt-1">
+      Nhập email và chúng tôi sẽ gửi link đặt lại mật khẩu cho bạn.
+    </div>
+  </div>
 
-        <div
-            v-if="status"
-            class="mb-4 text-sm font-medium text-green-600"
-        >
-            {{ status }}
-        </div>
+  <div v-if="status" class="mb-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+    {{ status }}
+  </div>
 
-        <form @submit.prevent="submit">
-            <div>
-                <InputLabel for="email" value="Email" />
+  <form class="space-y-5" @submit.prevent="submit">
+    <div>
+      <label class="block text-sm font-medium text-white/70">Email</label>
+      <input v-model="form.email" type="email" autocomplete="email"
+        :class="inputCls" placeholder="Nhập email tài khoản" autofocus />
+      <div v-if="form.errors.email" class="text-sm text-red-400 mt-1">{{ form.errors.email }}</div>
+    </div>
 
-                <TextInput
-                    id="email"
-                    type="email"
-                    class="mt-1 block w-full"
-                    v-model="form.email"
-                    required
-                    autofocus
-                    autocomplete="username"
-                />
+    <button type="submit" :disabled="form.processing"
+      class="w-full rounded-lg bg-brand-500 text-cosmic-950 font-extrabold py-2.5 hover:bg-brand-600 transition disabled:opacity-60">
+      {{ form.processing ? 'Đang gửi...' : 'GỬI LINK ĐẶT LẠI MẬT KHẨU' }}
+    </button>
 
-                <InputError class="mt-2" :message="form.errors.email" />
-            </div>
-
-            <div class="mt-4 flex items-center justify-end">
-                <PrimaryButton
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                >
-                    Email Password Reset Link
-                </PrimaryButton>
-            </div>
-        </form>
-    </GuestLayout>
+    <div class="text-center text-sm text-white/60">
+      Nhớ mật khẩu rồi?
+      <a href="/login" class="text-brand-300 hover:underline font-semibold">Đăng nhập</a>
+    </div>
+  </form>
 </template>

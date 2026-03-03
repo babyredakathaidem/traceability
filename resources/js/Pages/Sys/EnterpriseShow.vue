@@ -69,11 +69,11 @@ const v = (val) => (val === null || val === undefined || val === '' ? '-' : val)
         </div>
 
         <div class="md:col-span-2">
-          <div class="text-white/50">Địa chỉ</div>
-          <div class="font-extrabold text-white/90">
-            {{ v(enterprise.address_detail || enterprise.address) }}
-          </div>
+        <div class="text-white/50">Địa chỉ</div>
+        <div class="font-extrabold text-white/90">
+          {{ [enterprise.address_detail, enterprise.district, enterprise.province].filter(Boolean).join(', ') || '-' }}
         </div>
+      </div>
 
         <div>
           <div class="text-white/50">Người đại diện</div>

@@ -72,6 +72,12 @@ Route::middleware(['auth'])->group(function () {
         ->name('onboarding.enterprise.pending');
     Route::get('/onboarding/enterprise/rejected', [OnboardingEnterpriseStatusController::class, 'rejected'])
         ->name('onboarding.enterprise.rejected');
+    Route::get('email-verified', function () {return Inertia::render('Auth/VerifyEmailSuccess');})
+        ->name('email.verified.success');
+    Route::get('auth/email-status', function (Request $request) {return response()->json(['verified' => (bool) $request->user()?->hasVerifiedEmail()]);})
+        ->name('auth.email.status');
+    Route::get('/onboarding/enterprise/blocked', [OnboardingEnterpriseStatusController::class, 'blocked'])
+        ->name('onboarding.enterprise.blocked');
 });
 
 /*
@@ -168,6 +174,8 @@ Route::middleware(['auth', 'super'])
         Route::get('/enterprises/{enterprise}', [EnterpriseApprovalController::class, 'show'])->name('sys.enterprises.show');
         Route::post('/enterprises/{enterprise}/approve', [EnterpriseApprovalController::class, 'approve'])->name('sys.enterprises.approve');
         Route::post('/enterprises/{enterprise}/reject', [EnterpriseApprovalController::class, 'reject'])->name('sys.enterprises.reject');
+        Route::post('/enterprises/{enterprise}/block', [EnterpriseApprovalController::class, 'block'])->name('sys.enterprises.block');
+        Route::post('/enterprises/{enterprise}/unblock', [EnterpriseApprovalController::class, 'unblock'])->name('sys.enterprises.unblock');
     });
 
 require __DIR__ . '/auth.php';
