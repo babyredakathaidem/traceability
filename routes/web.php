@@ -15,7 +15,9 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\BatchRecallController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PublicController;
-
+use App\Http\Controllers\BatchSplitController;
+use App\Http\Controllers\BatchMergeController;
+use App\Http\Controllers\BatchTransferController;
 
 
 // Onboarding
@@ -107,6 +109,30 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])->group(functio
     Route::post('/batches', [BatchController::class, 'store'])->name('batches.store');
     Route::put('/batches/{batch}', [BatchController::class, 'update'])->name('batches.update');
     Route::delete('/batches/{batch}', [BatchController::class, 'destroy'])->name('batches.destroy');
+
+    // ── Batch Split ───────────────────────────────────────────
+    Route::get('/batches/{batch}/split', [BatchSplitController::class, 'show'])
+        ->name('batches.split.show');
+    Route::post('/batches/{batch}/split', [BatchSplitController::class, 'store'])
+        ->name('batches.split.store');
+
+    // ── Batch Merge ───────────────────────────────────────────
+    Route::get('/batches/merge', [BatchMergeController::class, 'show'])
+        ->name('batches.merge.show');
+    Route::post('/batches/merge', [BatchMergeController::class, 'store'])
+        ->name('batches.merge.store');
+
+    // ── Batch Transfer ────────────────────────────────────────
+    Route::post('/batches/{batch}/transfer', [BatchTransferController::class, 'store'])
+        ->name('batches.transfer.store');
+    Route::get('/batch-transfers/inbox', [BatchTransferController::class, 'inbox'])
+        ->name('batch-transfers.inbox');
+    Route::post('/batch-transfers/{transfer}/accept', [BatchTransferController::class, 'accept'])
+        ->name('batch-transfers.accept');
+    Route::post('/batch-transfers/{transfer}/reject', [BatchTransferController::class, 'reject'])
+        ->name('batch-transfers.reject');
+    Route::get('/batches/{batch}/transfer', [BatchTransferController::class, 'show'])
+        ->name('batches.transfer.show');
 
     // Batch recall
     Route::post('/batches/{batch}/recall', [BatchRecallController::class, 'store'])->name('batches.recall.store');

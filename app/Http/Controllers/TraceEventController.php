@@ -30,8 +30,11 @@ class TraceEventController extends Controller
 
         $batches = Batch::with('product:id,name,category_id')
             ->where('enterprise_id', $tenantId)
+            // Fix 3: chỉ hiện lô có thể ghi event
+            ->whereNotIn('status', ['consumed', 'recalled'])
             ->orderByDesc('id')
-            ->get(['id', 'code', 'product_id', 'product_name', 'status']);
+            ->get(['id', 'code', 'product_id', 'product_name', 'status',
+                'batch_type', 'certifications', 'current_quantity', 'unit']);
 
         $events = TraceEvent::with([
             'batch:id,code,product_id,product_name',
@@ -46,7 +49,19 @@ class TraceEventController extends Controller
             ->withQueryString();
 
         return Inertia::render('Events/Index', [
-            'batches' => $batches,
+            'batches' => $batches->map(fn($b) => [
+                'id'               => $b->id,
+                'code'             => $b->code,
+                'product_id'       => $b->product_id,
+                'product_name'     => $b->product?->name ?? $b->product_name,
+                'status'           => $b->status,
+                'batch_type'       => $b->batch_type,
+                'certifications'   => $b->certifications ?? [],
+                'current_quantity' => $b->current_quantity,
+                'unit'             => $b->unit,
+                // Fix 1+2: category_id để load CTE, fallback về null nếu merged
+                'category_id'      => $b->product?->category_id ?? null,
+            ]),
             'events'  => $events,
             'filters' => ['batch_id' => $batchId],
         ]);
@@ -63,11 +78,16 @@ class TraceEventController extends Controller
         $categoryId = $request->query('category_id');
         $batchId    = $request->query('batch_id');
 
-        $templates = CteTemplate::where('category_id', $categoryId)
-            ->orderBy('step_order')
-            ->get();
+        // Fix: nếu không có category (merged/split batch) → dùng template chung
+        if ($categoryId) {
+            $templates = CteTemplate::where('category_id', $categoryId)
+                ->orderBy('step_order')
+                ->get();
+        } else {
+            // Lô merged/split/received → template rỗng, frontend dùng custom event
+            $templates = collect();
+        }
 
-        // Nếu có batch_id → map published CTEs
         $publishedCodes = [];
         if ($batchId) {
             $publishedCodes = TraceEvent::where('batch_id', $batchId)
@@ -89,6 +109,8 @@ class TraceEventController extends Controller
                 'is_done'     => in_array($t->code, $publishedCodes),
             ]),
             'published_codes' => $publishedCodes,
+            // Fix: báo cho frontend biết batch type để hiện UI phù hợp
+            'has_templates'   => $templates->isNotEmpty(),
         ]);
     }
 
@@ -217,7 +239,7 @@ class TraceEventController extends Controller
 
     public function destroy(Request $request, TraceEvent $event)
     {
-        $event->loadMissing('batch');
+        //$event->loadMissing('batch');
         $this->assertTenant($request, $event);
 
         if ($event->isPublished()) {
@@ -298,10 +320,9 @@ class TraceEventController extends Controller
 
     private function assertTenant(Request $request, TraceEvent $event): void
     {
-        $event->loadMissing('batch');
         abort_unless(
-            $event->batch?->enterprise_id === $this->tenantId($request),
-            403
-        );
+        (int) $event->enterprise_id === $this->tenantId($request),
+        403
+    );
     }
 }

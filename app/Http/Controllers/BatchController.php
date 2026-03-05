@@ -94,6 +94,8 @@ class BatchController extends Controller
             'expiry_date'     => 'nullable|date|after_or_equal:production_date',
             'quantity'        => 'nullable|integer|min:1',
             'unit'            => 'nullable|string|max:50',
+            'certifications'  => 'nullable|array',           // ← thêm
+            'certifications.*'=> 'nullable|string|max:100',
         ]);
 
         // Đảm bảo product thuộc đúng tenant
@@ -119,6 +121,7 @@ class BatchController extends Controller
             'expiry_date'    => $data['expiry_date'] ?? null,
             'quantity'       => $data['quantity'] ?? null,
             'unit'           => $data['unit'] ?? null,
+            'certifications'  => $data['certifications'] ?? [], 
         ]);
 
         return back()->with('success', "Đã tạo lô {$code}.");
@@ -135,6 +138,8 @@ class BatchController extends Controller
             'expiry_date'    => 'nullable|date|after_or_equal:production_date',
             'quantity'       => 'nullable|integer|min:1',
             'unit'           => 'nullable|string|max:50',
+            'certifications'  => 'nullable|array',           
+            'certifications.*'=> 'nullable|string|max:100',
         ]);
 
         $batch->update($data);

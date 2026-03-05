@@ -38,5 +38,14 @@ return [
         'key' => env('VIETMAP_API_KEY'),
     ],
 
+    'fabric' => [
+        'gateway_url' => env('FABRIC_GATEWAY_URL', 'http://172.22.82.178:3001'),
+    ],
+    'pinata' => [
+        'api_key'    => env('PINATA_API_KEY', ''),
+        'secret_key' => env('PINATA_SECRET_KEY', ''),
+        'gateway'    => env('PINATA_GATEWAY', 'https://gateway.pinata.cloud'),
+    ],
+
 
 ];

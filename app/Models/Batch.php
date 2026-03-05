@@ -22,14 +22,20 @@ class Batch extends Model
         'expiry_date',
         'quantity',
         'unit',
-        'status',       // active | completed | recalled
+        'status',
+        'batch_type',
+        'current_quantity',
+        'origin_enterprise_id',
+        'parent_batch_id',       
         'completed_at',
+        'certifications',
     ];
 
     protected $casts = [
         'production_date' => 'date',
         'expiry_date'     => 'date',
         'completed_at'    => 'datetime',
+        'certifications'   => 'array',
     ];
 
     // ── Relations ─────────────────────────────────────────
@@ -137,5 +143,99 @@ class Batch extends Model
     public function canPublishQr(): bool
     {
         return $this->completenessScore()['score'] === 100;
+    }
+    public function originEnterprise(): BelongsTo
+    {
+        return $this->belongsTo(Enterprise::class, 'origin_enterprise_id');
+    }
+
+    public function parentBatch(): BelongsTo
+    {
+        return $this->belongsTo(Batch::class, 'parent_batch_id');
+    }
+
+    public function childBatches(): HasMany
+    {
+        return $this->hasMany(Batch::class, 'parent_batch_id');
+    }
+
+    public function lineageAsInput(): HasMany
+    {
+        return $this->hasMany(BatchLineage::class, 'input_batch_id');
+    }
+
+    public function lineageAsOutput(): HasMany
+    {
+        return $this->hasMany(BatchLineage::class, 'output_batch_id');
+    }
+
+    public function transfers(): HasMany
+    {
+        return $this->hasMany(BatchTransfer::class);
+    }
+
+    public function pendingTransfer(): HasOne
+    {
+        return $this->hasOne(BatchTransfer::class)->where('status', 'pending')->latest();
+    }
+
+    // ── buildAncestors — đệ quy lấy toàn bộ cây phả hệ ──────────
+    public function buildAncestors(): array
+    {
+        $ancestors = [];
+
+        // 1. Nếu có parent_batch_id (split) → đệ quy lên cha
+        if ($this->parent_batch_id) {
+            $parent = Batch::with(['enterprise', 'originEnterprise', 'publishedEvents'])
+                ->find($this->parent_batch_id);
+            if ($parent) {
+                $ancestors[] = [
+                    'batch'      => $parent,
+                    'relation'   => 'split_from',
+                    'ancestors'  => $parent->buildAncestors(),
+                ];
+            }
+        }
+
+        // 2. Nếu là lô merged → tìm inputs trong batch_lineage
+        if ($this->batch_type === 'merged') {
+            $inputs = BatchLineage::where('output_batch_id', $this->id)
+                ->where('transformation_type', 'merge')
+                ->with(['inputBatch.enterprise', 'inputBatch.originEnterprise'])
+                ->get();
+
+            foreach ($inputs as $lineage) {
+                $inputBatch = $lineage->inputBatch;
+                if ($inputBatch) {
+                    $ancestors[] = [
+                        'batch'    => $inputBatch,
+                        'relation' => 'merged_from',
+                        'quantity' => $lineage->quantity,
+                        'unit'     => $lineage->unit,
+                        'ancestors'=> $inputBatch->buildAncestors(),
+                    ];
+                }
+            }
+        }
+
+        // 3. Nếu là received → tìm transfer event
+        if ($this->batch_type === 'received') {
+            $transfer = BatchTransfer::where('batch_id', $this->id)
+                ->where('status', 'accepted')
+                ->with(['fromEnterprise', 'transferEvent'])
+                ->latest('accepted_at')
+                ->first();
+
+            if ($transfer) {
+                $ancestors[] = [
+                    'batch'    => $this,
+                    'relation' => 'received_from',
+                    'transfer' => $transfer,
+                    'ancestors'=> [],
+                ];
+            }
+        }
+
+        return $ancestors;
     }
 }
