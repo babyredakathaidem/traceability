@@ -30,7 +30,6 @@ class TraceEventController extends Controller
 
         $batches = Batch::with('product:id,name,category_id')
             ->where('enterprise_id', $tenantId)
-            // Fix 3: chỉ hiện lô có thể ghi event
             ->whereNotIn('status', ['consumed', 'recalled'])
             ->orderByDesc('id')
             ->get(['id', 'code', 'product_id', 'product_name', 'status',
@@ -59,7 +58,6 @@ class TraceEventController extends Controller
                 'certifications'   => $b->certifications ?? [],
                 'current_quantity' => $b->current_quantity,
                 'unit'             => $b->unit,
-                // Fix 1+2: category_id để load CTE, fallback về null nếu merged
                 'category_id'      => $b->product?->category_id ?? null,
             ]),
             'events'  => $events,
@@ -78,13 +76,12 @@ class TraceEventController extends Controller
         $categoryId = $request->query('category_id');
         $batchId    = $request->query('batch_id');
 
-        // Fix: nếu không có category (merged/split batch) → dùng template chung
         if ($categoryId) {
             $templates = CteTemplate::where('category_id', $categoryId)
                 ->orderBy('step_order')
                 ->get();
         } else {
-            // Lô merged/split/received → template rỗng, frontend dùng custom event
+            // Lô merged/split/received → frontend dùng GENERIC_TEMPLATES
             $templates = collect();
         }
 
@@ -109,7 +106,6 @@ class TraceEventController extends Controller
                 'is_done'     => in_array($t->code, $publishedCodes),
             ]),
             'published_codes' => $publishedCodes,
-            // Fix: báo cho frontend biết batch type để hiện UI phù hợp
             'has_templates'   => $templates->isNotEmpty(),
         ]);
     }
@@ -125,7 +121,6 @@ class TraceEventController extends Controller
             'cte_code'     => 'required|string|max:60',
             'event_time'   => 'required|date',
             'kde_data'     => 'required|array',
-            // Extracted 5W index fields
             'who_name'     => 'nullable|string|max:255',
             'where_address'=> 'nullable|string|max:255',
             'where_lat'    => 'nullable|numeric|between:-90,90',
@@ -148,7 +143,7 @@ class TraceEventController extends Controller
             'enterprise_id' => $tenantId,
             'batch_id'      => $batch->id,
             'cte_code'      => $data['cte_code'],
-            'event_type'    => $data['cte_code'], // backward compat
+            'event_type'    => $data['cte_code'],
             'event_time'    => $data['event_time'],
             'kde_data'      => $data['kde_data'],
             'who_name'      => $data['who_name'] ?? null,
@@ -157,7 +152,7 @@ class TraceEventController extends Controller
             'where_lng'     => $data['where_lng'] ?? null,
             'why_reason'    => $data['why_reason'] ?? null,
             'note'          => $data['note'] ?? null,
-            'location'      => $data['where_address'] ?? null, // backward compat
+            'location'      => $data['where_address'] ?? null,
             'status'        => 'draft',
         ]);
 
@@ -166,15 +161,11 @@ class TraceEventController extends Controller
 
     // ── uploadAttachment ──────────────────────────────────
 
-    /**
-     * POST /events/{event}/attachments
-     * Upload file đính kèm lên IPFS, trả về CID
-     */
-    public function uploadAttachment(Request $request, TraceEvent $event)
+    public function uploadAttachment(Request $request, TraceEvent $traceEvent)
     {
-        $this->assertTenant($request, $event);
+        $this->assertTenant($request, $traceEvent);
 
-        if ($event->isPublished()) {
+        if ($traceEvent->isPublished()) {
             return response()->json(['error' => 'Sự kiện đã publish, không thể thêm đính kèm.'], 403);
         }
 
@@ -193,8 +184,7 @@ class TraceEventController extends Controller
             return response()->json(['error' => 'Upload IPFS thất bại.'], 500);
         }
 
-        // Append vào mảng attachments
-        $attachments   = $event->attachments ?? [];
+        $attachments   = $traceEvent->attachments ?? [];
         $attachments[] = [
             'cid'       => $result['cid'],
             'url'       => $result['url'],
@@ -203,18 +193,18 @@ class TraceEventController extends Controller
             'mock'      => $result['mock'],
         ];
 
-        $event->update(['attachments' => $attachments]);
+        $traceEvent->update(['attachments' => $attachments]);
 
         return response()->json(['attachment' => end($attachments)]);
     }
 
     // ── update ─────────────────────────────────────────────
 
-    public function update(Request $request, TraceEvent $event)
+    public function update(Request $request, TraceEvent $traceEvent)
     {
-        $this->assertTenant($request, $event);
+        $this->assertTenant($request, $traceEvent);
 
-        if ($event->isPublished()) {
+        if ($traceEvent->isPublished()) {
             abort(403, 'Sự kiện đã publish lên IPFS, không thể sửa.');
         }
 
@@ -230,54 +220,52 @@ class TraceEventController extends Controller
             'note'         => 'nullable|string|max:2000',
         ]);
 
-        $event->update($data);
+        $traceEvent->update($data);
 
         return back()->with('success', 'Đã cập nhật sự kiện.');
     }
 
     // ── destroy ────────────────────────────────────────────
-
-    public function destroy(Request $request, TraceEvent $event)
+    public function destroy(Request $request, TraceEvent $traceEvent)
     {
-        //$event->loadMissing('batch');
-        $this->assertTenant($request, $event);
+        $this->assertTenant($request, $traceEvent);
 
-        if ($event->isPublished()) {
+        if ($traceEvent->isPublished()) {
             abort(403, 'Sự kiện đã publish lên IPFS, không thể xóa.');
         }
 
-        $event->delete();
+        $traceEvent->delete();
 
         return back()->with('success', 'Đã xóa sự kiện.');
     }
 
     // ── publish → IPFS ─────────────────────────────────────
 
-    public function publish(Request $request, TraceEvent $event)
+    public function publish(Request $request, TraceEvent $traceEvent)
     {
-        $event->loadMissing('batch.product.category', 'batch.enterprise');
-        $this->assertTenant($request, $event);
+        $traceEvent->loadMissing('batch.product.category', 'batch.enterprise');
+        $this->assertTenant($request, $traceEvent);
 
-        if ($event->isPublished()) {
+        if ($traceEvent->isPublished()) {
             return back()->with('success', 'Sự kiện này đã được publish rồi.');
         }
 
         // Tạo payload bất biến 5W
-        $payload     = $event->toIpfsPayload();
+        $payload     = $traceEvent->toIpfsPayload();
         $json        = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $contentHash = hash('sha256', $json);
 
         // Upload lên IPFS
         $ipfsResult = $this->ipfs->uploadJson(
             $payload,
-            "event-{$event->id}-{$event->cte_code}"
+            "event-{$traceEvent->id}-{$traceEvent->cte_code}"
         );
 
         if (!$ipfsResult) {
             return back()->withErrors(['ipfs' => 'Không thể upload lên IPFS. Vui lòng thử lại.']);
         }
 
-        $event->update([
+        $traceEvent->update([
             'status'       => 'published',
             'content_hash' => $contentHash,
             'ipfs_cid'     => $ipfsResult['cid'],
@@ -285,12 +273,16 @@ class TraceEventController extends Controller
             'published_at' => now(),
             'published_by' => $request->user()->id,
         ]);
-        Mail::to($request->user()->email)->queue(new EventPublishedMail($event->fresh(['batch.product'])));
+
+        Mail::to($request->user()->email)->queue(
+            new EventPublishedMail($traceEvent->fresh(['batch.product']))
+        );
+
         $mock = $ipfsResult['mock'] ? ' (MOCK - chưa cấu hình Pinata key)' : '';
         return back()->with('success', "Publish IPFS thành công{$mock}! CID: {$ipfsResult['cid']}");
     }
 
-    // ── verify ─────────────────────────────────────────────
+    // ── verify IPFS ────────────────────────────────────────
 
     /**
      * GET /verify/ipfs/{cid}?hash=xxx
@@ -318,11 +310,15 @@ class TraceEventController extends Controller
 
     // ── Private helpers ────────────────────────────────────
 
+    /**
+     * Kiểm tra event thuộc đúng tenant của user đang login.
+     * Dùng enterprise_id trực tiếp trên event — tránh load batch qua global scope.
+     */
     private function assertTenant(Request $request, TraceEvent $event): void
     {
         abort_unless(
-        (int) $event->enterprise_id === $this->tenantId($request),
-        403
-    );
+            (int) $event->enterprise_id === $this->tenantId($request),
+            403
+        );
     }
 }
