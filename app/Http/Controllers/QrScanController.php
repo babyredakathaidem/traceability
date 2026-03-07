@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Alert;
+use App\Models\Batch;
+use App\Models\BatchLineage;
 use App\Models\Qrcode;
 use App\Models\QrScanLog;
 use App\Models\TraceEvent;
@@ -24,7 +26,7 @@ class QrScanController extends Controller
     public function resolvePublic(Request $request, string $token)
     {
         $qr = Qrcode::with([
-            'batch:id,code,product_name,product_id,enterprise_id,production_date,expiry_date,quantity,unit,status',
+            'batch:id,code,product_name,product_id,enterprise_id,production_date,expiry_date,quantity,unit,status,batch_type,parent_batch_id',
             'batch.product:id,name,gtin,description,unit,image_path,category_id',
             'batch.product.category:id,name_vi,icon,code',
             'batch.enterprise:id,name,code,address_detail,province,phone,email',
@@ -94,7 +96,7 @@ class QrScanController extends Controller
     public function resolvePrivate(Request $request, string $token)
     {
         $qr = Qrcode::with([
-            'batch:id,code,product_name,product_id,enterprise_id,production_date,expiry_date,quantity,unit,status',
+            'batch:id,code,product_name,product_id,enterprise_id,production_date,expiry_date,quantity,unit,status,batch_type,parent_batch_id',
             'batch.product:id,name,gtin,description,unit,image_path,category_id',
             'batch.product.category:id,name_vi,icon,code',
             'batch.enterprise:id,name,code,address_detail,province,phone,email',
@@ -168,72 +170,168 @@ class QrScanController extends Controller
                 ] : null,
             ] : null,
             'enterprise'      => $batch->enterprise ? [
-                'name'     => $batch->enterprise->name,
-                'code'     => $batch->enterprise->code,
-                'address'  => $batch->enterprise->full_address ?? null,
-                'phone'    => $batch->enterprise->phone,
-                'email'    => $batch->enterprise->email,
+                'name'    => $batch->enterprise->name,
+                'code'    => $batch->enterprise->code,
+                'address' => $batch->enterprise->full_address ?? null,
+                'phone'   => $batch->enterprise->phone,
+                'email'   => $batch->enterprise->email,
             ] : null,
         ];
     }
 
+    /**
+     * Load toàn bộ published events theo lineage của lô hàng.
+     *
+     * Giải thích thiết kế transfer trong hệ thống này:
+     *   - Khi DN A transfer lô cho DN B → CÙNG 1 batch record, chỉ đổi enterprise_id
+     *   - Nghĩa là events của DN A và DN B đều có cùng batch_id → tự động gom được
+     *
+     * Chỉ cần đệ quy thêm khi:
+     *   - split: lô con có parent_batch_id → cần gom events từ lô cha
+     *   - merged: lô gộp có nhiều input_batch_id → cần gom từ tất cả input
+     */
     private function loadEvents($batch): array
     {
         if (!$batch) return [];
 
-        return TraceEvent::where('batch_id', $batch->id)
+        // Thu thập tất cả batch_id liên quan qua lineage
+        $batchIds = [];
+        $this->collectAncestorBatchIds($batch->id, $batchIds, 0);
+
+        // Load tất cả published events — bỏ transformation events (split/merge)
+        $events = TraceEvent::with('batch.enterprise:id,name,code')
+            ->whereIn('batch_id', $batchIds)
             ->where('status', 'published')
+            ->whereNotIn('cte_code', ['split', 'merge'])
             ->orderBy('event_time')
+            ->orderBy('id')
             ->get([
-                'id', 'cte_code', 'event_type', 'event_time',
+                'id', 'batch_id', 'enterprise_id', 'cte_code', 'event_type', 'event_time',
                 'kde_data', 'who_name', 'where_address', 'where_lat', 'where_lng',
                 'why_reason', 'note', 'attachments',
                 'content_hash', 'ipfs_cid', 'ipfs_url', 'tx_hash', 'published_at',
-            ])
-            ->map(fn($e) => [
-                'id'           => $e->id,
-                'cte_code'     => $e->cte_code ?? $e->event_type,
-                'event_time'   => optional($e->event_time)->format('H:i d/m/Y'),
-                'who_name'     => $e->who_name,
-                'where_address'=> $e->where_address,
-                'where_lat'    => $e->where_lat,
-                'where_lng'    => $e->where_lng,
-                'why_reason'   => $e->why_reason,
-                'note'         => $e->note,
-                'kde_data'     => $e->kde_data ?? [],
-                'attachments'  => $e->attachments ?? [],
-                'ipfs_cid'     => $e->ipfs_cid,
-                'ipfs_url'     => $e->ipfs_url,
-                'tx_hash'      => $e->tx_hash,
-                'published_at' => optional($e->published_at)->format('d/m/Y H:i'),
-                'content_hash' => $e->content_hash,
-            ])
-            ->toArray();
+            ]);
+
+        return $events->map(fn($e) => [
+            'id'             => $e->id,
+            'cte_code'       => $e->cte_code ?? $e->event_type,
+            'event_time'     => optional($e->event_time)->format('H:i d/m/Y'),
+            'event_time_iso' => optional($e->event_time)->toISOString(),
+            'who_name'       => $e->who_name,
+            'where_address'  => $e->where_address,
+            'where_lat'      => $e->where_lat,
+            'where_lng'      => $e->where_lng,
+            'why_reason'     => $e->why_reason,
+            'note'           => $e->note,
+            'kde_data'       => $e->kde_data ?? [],
+            'attachments'    => $e->attachments ?? [],
+            'ipfs_cid'       => $e->ipfs_cid,
+            'ipfs_url'       => $e->ipfs_url,
+            'tx_hash'        => $e->tx_hash,
+            'published_at'   => optional($e->published_at)->format('d/m/Y H:i'),
+            'content_hash'   => $e->content_hash,
+            // Tên DN thực hiện bước này — hiển thị trên timeline
+            'enterprise'     => $e->batch?->enterprise ? [
+                'name' => $e->batch->enterprise->name,
+                'code' => $e->batch->enterprise->code,
+            ] : null,
+        ])->toArray();
     }
+
+    /**
+     * Đệ quy thu thập batch_id trong cây lineage.
+     *
+     * Lưu ý quan trọng về transfer:
+     *   Khi transfer xảy ra → KHÔNG tạo batch mới, chỉ đổi enterprise_id.
+     *   Vì vậy batch_type='received' KHÔNG cần đệ quy thêm —
+     *   events của tất cả DN đều đã dùng cùng batch_id.
+     *
+     * Chỉ cần đệ quy cho:
+     *   - split  → lên parent_batch_id
+     *   - merged → lên tất cả input_batch_id trong batch_lineage
+     */
+    private function collectAncestorBatchIds(int $batchId, array &$ids, int $depth): void
+    {
+        // Giới hạn độ sâu 10 tầng — tránh vòng lặp vô hạn
+        if ($depth > 10 || in_array($batchId, $ids)) return;
+
+        $ids[] = $batchId;
+
+        $batch = Batch::select('id', 'batch_type', 'parent_batch_id')->find($batchId);
+        if (!$batch) return;
+
+        // Lô gốc hoặc received → dừng (received dùng cùng batch_id với lô gốc)
+        if (in_array($batch->batch_type, ['original', 'received'])) return;
+
+        // Split → đệ quy lên lô cha
+        if ($batch->batch_type === 'split' && $batch->parent_batch_id) {
+            $this->collectAncestorBatchIds($batch->parent_batch_id, $ids, $depth + 1);
+        }
+
+        // Merged → đệ quy lên tất cả input batches
+        if ($batch->batch_type === 'merged') {
+            $inputIds = BatchLineage::where('output_batch_id', $batchId)
+                ->where('transformation_type', 'merge')
+                ->pluck('input_batch_id');
+
+            foreach ($inputIds as $inputId) {
+                $this->collectAncestorBatchIds($inputId, $ids, $depth + 1);
+            }
+        }
+    }
+
+    // ── Alert helpers ─────────────────────────────────────
+
+    private function alert(Qrcode $qr, string $type, string $detail): void
+    {
+        Alert::create([
+            'enterprise_id' => $qr->enterprise_id,
+            'batch_id'      => $qr->batch_id,
+            'qrcode_id'     => $qr->id,
+            'type'          => $type,
+            'detail'        => $detail,
+        ]);
+    }
+
+    private function alertInvalid(string $token, string $qrType, string $type, string $detail): void
+    {
+        Alert::create([
+            'enterprise_id' => null,
+            'batch_id'      => null,
+            'qrcode_id'     => null,
+            'type'          => $type,
+            'detail'        => "[{$qrType}] token={$token} — {$detail}",
+        ]);
+    }
+
+    // ── Scan log ──────────────────────────────────────────
 
     private function logInvalid(Request $request, string $type, string $token, string $reason): void
     {
         QrScanLog::create([
-            'qrcode_id'    => null,
-            'enterprise_id'=> null,
-            'batch_id'     => null,
-            'qr_type'      => $type,
-            'token'        => $token,
-            'scanned_at'   => now(),
-            'lat'          => $request->input('lat'),
-            'lng'          => $request->input('lng'),
-            'distance_m'   => null,
-            'device_name'  => $request->input('device_name'),
+            'qrcode_id'       => null,
+            'enterprise_id'   => null,
+            'batch_id'        => null,
+            'qr_type'         => $type,
+            'token'           => $token,
+            'scanned_at'      => now(),
+            'lat'             => $request->input('lat'),
+            'lng'             => $request->input('lng'),
+            'distance_m'      => null,
+            'device_name'     => $request->input('device_name'),
             'device_platform' => $request->input('device_platform'),
-            'ip'           => $request->ip(),
-            'user_agent'   => substr((string) $request->userAgent(), 0, 1000),
-            'decision'     => 'invalid',
-            'reason'       => $reason,
+            'ip'              => $request->ip(),
+            'user_agent'      => substr((string) $request->userAgent(), 0, 1000),
+            'decision'        => 'invalid',
+            'reason'          => $reason,
         ]);
     }
 
-    private function logScan(Request $request, Qrcode $qr, $lat, $lng, $distance, string $decision, ?string $reason): void
-    {
+    private function logScan(
+        Request $request, Qrcode $qr,
+        $lat, $lng, $distance,
+        string $decision, ?string $reason
+    ): void {
         QrScanLog::create([
             'qrcode_id'           => $qr->id,
             'enterprise_id'       => $qr->enterprise_id,
@@ -244,7 +342,6 @@ class QrScanController extends Controller
             'expected_lat'        => $qr->type === 'public' ? $qr->allowed_lat : null,
             'expected_lng'        => $qr->type === 'public' ? $qr->allowed_lng : null,
             'expected_radius_m'   => $qr->type === 'public' ? $qr->allowed_radius_m : null,
-            'scanned_at'          => now(),
             'lat'                 => $lat,
             'lng'                 => $lng,
             'distance_m'          => $distance,
@@ -257,41 +354,17 @@ class QrScanController extends Controller
         ]);
     }
 
-    private function alert(Qrcode $qr, string $type, string $message): void
-    {
-        Alert::create([
-            'enterprise_id' => $qr->enterprise_id,
-            'batch_id'      => $qr->batch_id,
-            'qrcode_id'     => $qr->id,
-            'qr_type'       => $qr->type,
-            'token'         => $qr->token,
-            'type'          => $type,
-            'message'       => $message,
-            'created_at'    => now(),
-        ]);
-    }
+    // ── Haversine distance ────────────────────────────────
 
-    private function alertInvalid(string $token, string $qrType, string $type, string $message): void
-    {
-        Alert::create([
-            'enterprise_id' => null,
-            'batch_id'      => null,
-            'qrcode_id'     => null,
-            'qr_type'       => $qrType,
-            'token'         => $token,
-            'type'          => $type,
-            'message'       => $message,
-            'created_at'    => now(),
-        ]);
-    }
-
-    private function distanceMeters(float $lat1, float $lon1, float $lat2, float $lon2): float
-    {
-        $earth = 6371000;
-        $dLat  = deg2rad($lat2 - $lat1);
-        $dLon  = deg2rad($lon2 - $lon1);
-        $a     = sin($dLat / 2) ** 2
-            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
-        return $earth * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    private function distanceMeters(
+        float $lat1, float $lng1,
+        float $lat2, float $lng2
+    ): float {
+        $R    = 6371000;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $a    = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+        return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

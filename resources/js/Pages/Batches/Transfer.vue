@@ -8,10 +8,20 @@ const props = defineProps({
   batch: { type: Object, required: true },
 })
 
+
+function generateInvoiceNo() {
+  const now = new Date()
+  const ymd = now.getFullYear().toString()
+    + String(now.getMonth() + 1).padStart(2, '0')
+    + String(now.getDate()).padStart(2, '0')
+  const rand = Math.floor(1000 + Math.random() * 9000)
+  return `HD-${ymd}-${rand}`
+}
+
 const form = useForm({
   to_enterprise_code: '',
   quantity:           props.batch.current_quantity ?? props.batch.quantity ?? '',
-  invoice_no:         '',
+  invoice_no:         generateInvoiceNo(),
   note:               '',
 })
 
@@ -43,7 +53,7 @@ function submit() {
           label="Mã doanh nghiệp nhận *"
           v-model="form.to_enterprise_code"
           :error="form.errors.to_enterprise_code"
-          placeholder="VD: DN-000002"
+          placeholder="VD: AGU-AG-0001"
         />
         <div class="grid grid-cols-2 gap-4">
           <UiInput
@@ -58,12 +68,23 @@ function submit() {
             disabled
           />
         </div>
-        <UiInput
-          label="Số hóa đơn / chứng từ"
-          v-model="form.invoice_no"
-          :error="form.errors.invoice_no"
-          placeholder="HD2026-001"
-        />
+
+        <!-- Invoice số tự sinh + có thể sửa -->
+        <div>
+          <UiInput
+            label="Số hóa đơn / chứng từ"
+            v-model="form.invoice_no"
+            :error="form.errors.invoice_no"
+          />
+          <button
+            type="button"
+            class="mt-1 text-xs text-brand-400 hover:text-brand-300 transition"
+            @click="form.invoice_no = generateInvoiceNo()"
+          >
+             Tạo số mới
+          </button>
+        </div>
+
         <UiInput
           label="Ghi chú"
           v-model="form.note"
@@ -74,7 +95,7 @@ function submit() {
       <!-- Cảnh báo -->
       <div class="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-sm text-amber-300">
         ⚠ Sau khi doanh nghiệp nhận xác nhận, lô sẽ chuyển sang họ quản lý.
-        Nguồn gốc gốc vẫn được lưu trên blockchain.
+        Nguồn gốc vẫn được lưu trên blockchain.
       </div>
     </UiCard>
 

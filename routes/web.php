@@ -109,7 +109,8 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])->group(functio
     Route::post('/batches', [BatchController::class, 'store'])->name('batches.store');
     Route::put('/batches/{batch}', [BatchController::class, 'update'])->name('batches.update');
     Route::delete('/batches/{batch}', [BatchController::class, 'destroy'])->name('batches.destroy');
-
+    Route::get('/batches/{batch}/lineage', [BatchController::class, 'lineage'])
+        ->name('batches.lineage');
     // ── Batch Split ───────────────────────────────────────────
     Route::get('/batches/{batch}/split', [BatchSplitController::class, 'show'])
         ->name('batches.split.show');

@@ -6,15 +6,19 @@ use App\Models\Batch;
 use App\Models\CteTemplate;
 use App\Models\TraceEvent;
 use App\Services\IpfsService;
+use App\Services\BlockchainService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use App\Mail\EventPublishedMail;
 use Illuminate\Support\Facades\Mail;
 
 class TraceEventController extends Controller
 {
-    public function __construct(private IpfsService $ipfs) {}
+    public function __construct(
+        private IpfsService       $ipfs,
+        private BlockchainService $blockchain,
+    ) {}
 
     private function tenantId(Request $request): int
     {
@@ -67,10 +71,6 @@ class TraceEventController extends Controller
 
     // ── getTemplates (API) ────────────────────────────────
 
-    /**
-     * GET /api/cte-templates?category_id=X
-     * Trả về danh sách CTE + completeness cho 1 batch cụ thể
-     */
     public function getTemplates(Request $request)
     {
         $categoryId = $request->query('category_id');
@@ -81,7 +81,6 @@ class TraceEventController extends Controller
                 ->orderBy('step_order')
                 ->get();
         } else {
-            // Lô merged/split/received → frontend dùng GENERIC_TEMPLATES
             $templates = collect();
         }
 
@@ -129,12 +128,10 @@ class TraceEventController extends Controller
             'note'         => 'nullable|string|max:2000',
         ]);
 
-        // Đảm bảo batch thuộc đúng tenant
         $batch = Batch::where('id', $data['batch_id'])
             ->where('enterprise_id', $tenantId)
             ->firstOrFail();
 
-        // Không cho ghi sự kiện mới vào lô đã bị thu hồi
         if ($batch->isRecalled()) {
             return back()->withErrors(['batch' => 'Lô này đang bị thu hồi, không thể thêm sự kiện mới.']);
         }
@@ -226,6 +223,7 @@ class TraceEventController extends Controller
     }
 
     // ── destroy ────────────────────────────────────────────
+
     public function destroy(Request $request, TraceEvent $traceEvent)
     {
         $this->assertTenant($request, $traceEvent);
@@ -239,8 +237,22 @@ class TraceEventController extends Controller
         return back()->with('success', 'Đã xóa sự kiện.');
     }
 
-    // ── publish → IPFS ─────────────────────────────────────
+    // ── publish → IPFS + Hyperledger Fabric ───────────────
 
+    /**
+     * POST /events/{traceEvent}/publish
+     *
+     * Luồng dual-immutability:
+     *  1. Build payload + SHA-256 content hash
+     *  2. Upload JSON lên IPFS (Pinata) → CID (content-addressed)
+     *  3. Ghi CID + hash lên Hyperledger Fabric → tx_hash (tamper-evident ledger)
+     *  4. Lưu DB: status=published, ipfs_cid, tx_hash, content_hash
+     *
+     * Non-blocking design:
+     *  - Nếu Fabric gateway timeout/lỗi → vẫn publish thành công (IPFS đã OK)
+     *  - tx_hash = null được phép, ghi log warning để retry sau
+     *  - Không block UX vì Fabric network có thể chậm
+     */
     public function publish(Request $request, TraceEvent $traceEvent)
     {
         $traceEvent->loadMissing('batch.product.category', 'batch.enterprise');
@@ -250,12 +262,12 @@ class TraceEventController extends Controller
             return back()->with('success', 'Sự kiện này đã được publish rồi.');
         }
 
-        // Tạo payload bất biến 5W
+        // ── 1. Payload + content hash ──────────────────────
         $payload     = $traceEvent->toIpfsPayload();
         $json        = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $contentHash = hash('sha256', $json);
 
-        // Upload lên IPFS
+        // ── 2. Upload lên IPFS ─────────────────────────────
         $ipfsResult = $this->ipfs->uploadJson(
             $payload,
             "event-{$traceEvent->id}-{$traceEvent->cte_code}"
@@ -265,29 +277,88 @@ class TraceEventController extends Controller
             return back()->withErrors(['ipfs' => 'Không thể upload lên IPFS. Vui lòng thử lại.']);
         }
 
+        // ── 3. Ghi lên Hyperledger Fabric (non-blocking) ───
+        $txHash      = null;
+        $fabricOk    = false;
+        $fabricError = null;
+
+        try {
+            $fabricResult = $this->blockchain->recordEvent(
+                eventID:      (string) $traceEvent->id,
+                batchCode:    (string) ($traceEvent->batch?->code ?? ''),
+                enterpriseID: (string) ($traceEvent->batch?->enterprise?->code ?? ''),
+                cteCode:      (string) $traceEvent->cte_code,
+                contentHash:  $contentHash,
+                ipfsCid:      $ipfsResult['cid'],
+                recordedBy:   $request->user()->name,
+            );
+
+            if ($fabricResult['success']) {
+                $fabricOk = true;
+                // Gateway trả txId theo nhiều tên khác nhau
+                $txHash = $fabricResult['data']['txId']
+                    ?? $fabricResult['data']['tx_hash']
+                    ?? $fabricResult['data']['transactionId']
+                    ?? null;
+
+                Log::info('[Publish] Fabric OK', [
+                    'event_id' => $traceEvent->id,
+                    'tx_hash'  => $txHash,
+                    'cid'      => $ipfsResult['cid'],
+                ]);
+            } else {
+                $fabricError = $fabricResult['error'] ?? 'unknown';
+                Log::warning('[Publish] Fabric failed — non-blocking, continuing', [
+                    'event_id' => $traceEvent->id,
+                    'error'    => $fabricError,
+                    'cid'      => $ipfsResult['cid'],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            $fabricError = $e->getMessage();
+            Log::error('[Publish] Fabric exception — non-blocking', [
+                'event_id' => $traceEvent->id,
+                'exception'=> $e->getMessage(),
+                'cid'      => $ipfsResult['cid'],
+            ]);
+        }
+
+        // ── 4. Cập nhật DB ─────────────────────────────────
         $traceEvent->update([
             'status'       => 'published',
             'content_hash' => $contentHash,
             'ipfs_cid'     => $ipfsResult['cid'],
             'ipfs_url'     => $ipfsResult['url'],
+            'tx_hash'      => $txHash,   // null nếu Fabric lỗi
             'published_at' => now(),
             'published_by' => $request->user()->id,
         ]);
 
+        // ── 5. Gửi email xác nhận ──────────────────────────
         Mail::to($request->user()->email)->queue(
             new EventPublishedMail($traceEvent->fresh(['batch.product']))
         );
 
-        $mock = $ipfsResult['mock'] ? ' (MOCK - chưa cấu hình Pinata key)' : '';
-        return back()->with('success', "Publish IPFS thành công{$mock}! CID: {$ipfsResult['cid']}");
+        // ── 6. Flash message ───────────────────────────────
+        $ipfsMock = $ipfsResult['mock'] ? ' [MOCK]' : '';
+
+        if ($fabricOk && $txHash) {
+            $shortTx = substr($txHash, 0, 16) . '...';
+            $msg = " Publish thành công{$ipfsMock}! "
+                . "IPFS CID: " . substr($ipfsResult['cid'], 0, 12) . "... · "
+                . "Fabric TX: {$shortTx}";
+        } elseif ($fabricOk) {
+            $msg = "Publish thành công{$ipfsMock}! IPFS + Fabric OK.";
+        } else {
+            $msg = " Publish IPFS thành công{$ipfsMock}! CID: " . substr($ipfsResult['cid'], 0, 16)
+                . "... Fabric chưa ghi được (tx_hash sẽ được cập nhật sau).";
+        }
+
+        return back()->with('success', $msg);
     }
 
-    // ── verify IPFS ────────────────────────────────────────
+    // ── verifyIpfs (public endpoint) ──────────────────────
 
-    /**
-     * GET /verify/ipfs/{cid}?hash=xxx
-     * Public endpoint — người dùng verify tính toàn vẹn
-     */
     public function verifyIpfs(Request $request, string $cid)
     {
         $expectedHash = $request->query('hash', '');
@@ -299,21 +370,17 @@ class TraceEventController extends Controller
         $result = $this->ipfs->verify($cid, $expectedHash);
 
         return response()->json([
-            'cid'          => $cid,
-            'valid'        => $result['valid'],
-            'fetched'      => $result['fetched'],
-            'expected_hash'=> $result['expected_hash'],
-            'actual_hash'  => $result['actual_hash'],
-            'mock'         => $result['mock'],
+            'cid'           => $cid,
+            'valid'         => $result['valid'],
+            'fetched'       => $result['fetched'],
+            'expected_hash' => $result['expected_hash'],
+            'actual_hash'   => $result['actual_hash'],
+            'mock'          => $result['mock'],
         ]);
     }
 
-    // ── Private helpers ────────────────────────────────────
+    // ── Private ────────────────────────────────────────────
 
-    /**
-     * Kiểm tra event thuộc đúng tenant của user đang login.
-     * Dùng enterprise_id trực tiếp trên event — tránh load batch qua global scope.
-     */
     private function assertTenant(Request $request, TraceEvent $event): void
     {
         abort_unless(

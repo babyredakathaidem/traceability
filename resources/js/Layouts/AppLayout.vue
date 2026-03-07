@@ -1,6 +1,19 @@
 <script setup>
-import AppSidebar from '@/Components/nav/AppSidebar.vue'
-import AppTopbar from '@/Components/nav/AppTopbar.vue'
+import { ref, onMounted } from 'vue'
+import { router, usePage } from '@inertiajs/vue3'
+import AppSidebar   from '@/Components/nav/AppSidebar.vue'
+import AppTopbar    from '@/Components/nav/AppTopbar.vue'
+import UiToastHost  from '@/Components/ui/UiToastHost.vue'
+
+const toastRef = ref(null)
+const page     = usePage()
+
+router.on('navigate', () => {
+  const flash = page.props?.flash
+  if (!flash) return
+  if (flash.success) toastRef.value?.push('✅ ' + flash.success, 'success')
+  if (flash.error)   toastRef.value?.push('❌ ' + flash.error,   'danger')
+})
 </script>
 
 <template>
@@ -16,5 +29,8 @@ import AppTopbar from '@/Components/nav/AppTopbar.vue'
         </main>
       </div>
     </div>
+
+    <!-- Toast global — tự động hiện flash từ Laravel -->
+    <UiToastHost ref="toastRef" />
   </div>
 </template>
