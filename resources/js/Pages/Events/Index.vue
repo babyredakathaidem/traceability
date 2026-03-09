@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { Head, useForm, router, usePage } from '@inertiajs/vue3'
+import { Head, useForm, router } from '@inertiajs/vue3'
 import axios from 'axios'
 
 const props = defineProps({
@@ -8,9 +8,6 @@ const props = defineProps({
   events:  Object,
   filters: Object,
 })
-
-const page  = usePage()
-const flash = computed(() => page.props.flash ?? {})
 
 // ── Batch selector ────────────────────────────────────────
 const batchId       = ref(props.filters?.batch_id ? Number(props.filters.batch_id) : null)
@@ -36,31 +33,22 @@ const CERT_WHY_MAP = {
   SQF:        { '*': ['Tuân thủ tiêu chuẩn SQF — Safe Quality Food'] },
 }
 
-// Generic templates cho lô merged/split/received
 const GENERIC_TEMPLATES = [
   { code: 'transformation', name_vi: 'Chuyển đổi / Sản xuất', step_order: 1, is_required: false, is_done: false,
     kde_schema: [
-      { key: 'who_performer', label: 'Người thực hiện',    w: 'WHO',   type: 'text',     required: true,  placeholder: '' },
-      { key: 'what_action',   label: 'Hành động',          w: 'WHAT',  type: 'text',     required: true,  placeholder: 'Gộp lô, Tách lô...' },
-      { key: 'what_quantity', label: 'Số lượng',           w: 'WHAT',  type: 'number',   required: false },
-      { key: 'where_address', label: 'Địa điểm',           w: 'WHERE', type: 'text',     required: false },
-      { key: 'where_lat',     label: 'Latitude',           w: 'WHERE', type: 'number',   required: false },
-      { key: 'where_lng',     label: 'Longitude',          w: 'WHERE', type: 'number',   required: false },
-      { key: 'why_reason',    label: 'Lý do / Tiêu chuẩn',w: 'WHY',   type: 'textarea', required: false },
+      { key: 'who_performer', label: 'Người thực hiện',    w: 'WHO',   type: 'text',   required: true,  placeholder: '' },
+      { key: 'what_output',   label: 'Kết quả đầu ra',     w: 'WHAT',  type: 'text',   required: false },
+      { key: 'where_address', label: 'Địa điểm',           w: 'WHERE', type: 'text',   required: false },
+      { key: 'where_lat',     label: 'Latitude',           w: 'WHERE', type: 'number', required: false },
+      { key: 'where_lng',     label: 'Longitude',          w: 'WHERE', type: 'number', required: false },
+      { key: 'why_reason',    label: 'Lý do',              w: 'WHY',   type: 'textarea', required: false },
     ]},
-  { code: 'inspection', name_vi: 'Kiểm tra / Kiểm định', step_order: 2, is_required: false, is_done: false,
+  { code: 'storage', name_vi: 'Lưu kho', step_order: 2, is_required: false, is_done: false,
     kde_schema: [
-      { key: 'who_inspector', label: 'Người kiểm tra',     w: 'WHO',   type: 'text',   required: true },
-      { key: 'what_result',   label: 'Kết quả',            w: 'WHAT',  type: 'select', required: true, options: ['Đạt', 'Không đạt', 'Cần xem xét'] },
-      { key: 'what_criteria', label: 'Tiêu chí kiểm tra',  w: 'WHAT',  type: 'textarea', required: false },
-      { key: 'why_standard',  label: 'Tiêu chuẩn áp dụng',w: 'WHY',   type: 'text',   required: false },
-    ]},
-  { code: 'storage', name_vi: 'Lưu kho / Bảo quản', step_order: 3, is_required: false, is_done: false,
-    kde_schema: [
-      { key: 'who_actor',     label: 'Người thực hiện',    w: 'WHO',   type: 'text',   required: true },
-      { key: 'what_action',   label: 'Hành động',          w: 'WHAT',  type: 'text',   required: true, placeholder: 'Nhập kho, Xuất kho...' },
+      { key: 'who_keeper',    label: 'Người quản lý kho',  w: 'WHO',   type: 'text',   required: true },
+      { key: 'what_condition',label: 'Điều kiện bảo quản', w: 'WHAT',  type: 'text',   required: false, placeholder: 'Nhiệt độ, độ ẩm...' },
       { key: 'what_quantity', label: 'Số lượng',           w: 'WHAT',  type: 'number', required: false },
-      { key: 'where_address', label: 'Tên/địa chỉ kho',    w: 'WHERE', type: 'text',   required: false },
+      { key: 'where_address', label: 'Tên/địa chỉ kho',   w: 'WHERE', type: 'text',   required: false },
       { key: 'where_lat',     label: 'Latitude',           w: 'WHERE', type: 'number', required: false },
       { key: 'where_lng',     label: 'Longitude',          w: 'WHERE', type: 'number', required: false },
       { key: 'why_reason',    label: 'Lý do',              w: 'WHY',   type: 'textarea', required: false },
@@ -267,10 +255,10 @@ function publishEvent(ev) {
   router.post(route('events.publish', ev.id))
 }
 
-// ── XEM CHI TIẾT EVENT ────────────────────────────────────
+// ── Xem chi tiết ─────────────────────────────────────────
 const viewingEvent = ref(null)
-function openView(ev)  { viewingEvent.value = ev }
-function closeView()   { viewingEvent.value = null }
+function openView(ev) { viewingEvent.value = ev }
+function closeView()  { viewingEvent.value = null }
 
 // ── Helpers ───────────────────────────────────────────────
 function getCteName(ev) {
@@ -307,9 +295,6 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
         <div class="text-brand-300 text-sm font-semibold">Truy xuất nguồn gốc</div>
         <h1 class="text-2xl font-bold mt-1 text-white/90">Ghi nhận sự kiện</h1>
         <p class="text-white/40 text-sm mt-1">Chọn lô hàng và ghi dữ liệu 5W theo TCVN 12850:2019.</p>
-      </div>
-      <div v-if="flash.success" class="px-4 py-2 rounded-xl border border-green-500/30 bg-green-500/10 text-sm text-green-400">
-        {{ flash.success }}
       </div>
     </div>
 
@@ -359,17 +344,9 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
                 {{ tpl.is_done ? 'Đã hoàn thành' : tpl.is_required ? 'Bắt buộc' : 'Tuỳ chọn' }}
               </div>
             </div>
-            <span class="text-white/20 text-xs">›</span>
           </button>
           <!-- Custom event -->
-          <button @click="selectCte({ code:'custom', name_vi:'Sự kiện tuỳ chỉnh', step_order:'—', is_required:false, is_done:false, kde_schema:[
-            { key:'who_performer', label:'Người thực hiện',   w:'WHO',   type:'text',     required:true,  placeholder:'Tên người/đơn vị' },
-            { key:'what_activity', label:'Nội dung hoạt động',w:'WHAT',  type:'textarea', required:true,  placeholder:'Mô tả hoạt động' },
-            { key:'where_address', label:'Địa điểm',          w:'WHERE', type:'text',     required:false },
-            { key:'where_lat',     label:'Latitude',          w:'WHERE', type:'number',   required:false },
-            { key:'where_lng',     label:'Longitude',         w:'WHERE', type:'number',   required:false },
-            { key:'why_reason',    label:'Ghi chú / Lý do',   w:'WHY',   type:'textarea', required:false },
-          ]})"
+          <button @click="selectCte({ code: 'custom', name_vi: 'Sự kiện tuỳ chỉnh', step_order: 99, is_required: false, is_done: false, kde_schema: [] })"
             class="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-white/5 transition"
             :class="selectedCte?.code === 'custom' ? 'bg-brand-500/10 border-l-2 border-brand-500' : ''">
             <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs border border-dashed border-white/20 text-white/30 shrink-0">+</div>
@@ -410,77 +387,79 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
                       <div class="flex flex-wrap gap-1.5 mb-2">
                         <button v-for="s in whySuggestions" :key="s" type="button" @click="kdeValues[field.key] = s"
                           class="text-xs px-2.5 py-1.5 rounded-lg border transition"
-                          :class="kdeValues[field.key]===s ? 'border-brand-500/60 bg-brand-500/15 text-brand-300' : 'border-glass bg-white/5 text-white/50 hover:bg-white/8'">{{ s }}</button>
+                          :class="kdeValues[field.key]===s
+                            ? 'border-brand-500/60 bg-brand-500/15 text-brand-300'
+                            : 'border-white/10 bg-white/5 text-white/50 hover:bg-white/8'">
+                          {{ s }}
+                        </button>
                       </div>
-                      <input v-model="kdeValues[field.key]" type="text" :class="inputCls" placeholder="Hoặc nhập lý do tuỳ chỉnh..." />
+                      <textarea v-model="kdeValues[field.key]" :placeholder="field.placeholder || field.label"
+                        :class="inputCls" rows="2"></textarea>
                     </div>
-                    <div v-else-if="field.w === 'WHY'" class="md:col-span-2">
-                      <label class="block text-xs font-medium text-white/50 mb-1.5">{{ field.label }}<span v-if="field.required" class="text-red-400 ml-0.5">*</span></label>
-                      <input v-model="kdeValues[field.key]" type="text" :placeholder="field.placeholder||''" :class="inputCls" />
-                    </div>
-                    <div v-else :class="field.type==='textarea' ? 'md:col-span-2' : ''">
-                      <label class="block text-xs font-medium text-white/50 mb-1.5">{{ field.label }}<span v-if="field.required" class="text-red-400 ml-0.5">*</span></label>
-                      <textarea v-if="field.type==='textarea'" v-model="kdeValues[field.key]" rows="2" :placeholder="field.placeholder||''" :class="inputCls" class="resize-none" />
-                      <select v-else-if="field.type==='select'" v-model="kdeValues[field.key]" :class="inputCls">
-                        <option value="">— Chọn —</option>
-                        <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
-                      </select>
-                      <input v-else-if="field.type==='date'"   v-model="kdeValues[field.key]" type="date"   :class="inputCls" />
-                      <input v-else-if="field.type==='number'" v-model="kdeValues[field.key]" type="number" step="any" :placeholder="field.placeholder||''" :class="inputCls" />
-                      <input v-else v-model="kdeValues[field.key]" type="text" :placeholder="field.placeholder||''" :class="inputCls" />
+                    <div v-else :class="field.type === 'textarea' ? 'md:col-span-2' : ''">
+                      <label class="block text-xs font-medium text-white/50 mb-1.5">
+                        {{ field.label }}<span v-if="field.required" class="text-red-400 ml-0.5">*</span>
+                      </label>
+                      <textarea v-if="field.type === 'textarea'" v-model="kdeValues[field.key]"
+                        :placeholder="field.placeholder || ''" :class="inputCls" rows="2"></textarea>
+                      <input v-else v-model="kdeValues[field.key]" :type="field.type || 'text'"
+                        :placeholder="field.placeholder || ''" :class="inputCls" />
                     </div>
                   </template>
                 </template>
               </div>
-              <div v-if="selectedCte.kde_schema.some(f => f.key==='where_lat')">
-                <label class="block text-xs font-medium text-white/50 mb-1.5">Tọa độ GPS</label>
-                <div class="flex gap-2 flex-wrap">
-                  <input v-model="kdeValues['where_lat']" type="number" step="any" placeholder="Latitude"  :class="inputCls" class="flex-1 min-w-24" />
-                  <input v-model="kdeValues['where_lng']" type="number" step="any" placeholder="Longitude" :class="inputCls" class="flex-1 min-w-24" />
+              <!-- GPS -->
+              <div v-if="selectedCte.kde_schema.some(f => f.key === 'where_lat')" class="space-y-2">
+                <label class="block text-xs font-medium text-white/50">GPS Tọa độ</label>
+                <div class="flex gap-2 items-center">
                   <button type="button" @click="getGps" :disabled="gpsLoading"
-                    class="px-3 rounded-xl border border-white/10 text-white/40 text-xs hover:bg-white/5 transition disabled:opacity-40 whitespace-nowrap">
-                    {{ gpsLoading ? 'Đang lấy...' : 'Vị trí hiện tại' }}
+                    class="text-xs px-3 py-1.5 rounded-lg border border-brand-500/40 bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 transition disabled:opacity-50">
+                    {{ gpsLoading ? '📡 Đang lấy...' : '📍 Lấy GPS' }}
                   </button>
+                  <div v-if="currentGps" class="text-xs text-white/40 font-mono">
+                    {{ currentGps.lat.toFixed(5) }}, {{ currentGps.lng.toFixed(5) }}
+                  </div>
+                  <div v-if="gpsError" class="text-xs text-red-400">{{ gpsError }}</div>
                 </div>
-                <div v-if="gpsError" class="text-xs text-red-400 mt-1">{{ gpsError }}</div>
               </div>
             </template>
             <div>
-              <label class="block text-xs font-medium text-white/50 mb-1.5">Ghi chú thêm (tuỳ chọn)</label>
-              <textarea v-model="form.note" rows="2" :class="inputCls" class="resize-none" placeholder="Thông tin bổ sung..." />
+              <label class="block text-xs font-medium text-white/50 mb-1.5">Ghi chú thêm</label>
+              <textarea v-model="form.note" :class="inputCls" rows="2" placeholder="Tuỳ chọn..."></textarea>
             </div>
+            <!-- File đính kèm -->
             <div>
-              <label class="block text-xs font-medium text-white/50 mb-1.5">
-                Đính kèm file minh chứng <span class="text-white/25 ml-1">(tuỳ chọn)</span>
-              </label>
-              <div v-if="pendingFiles.length" class="flex flex-wrap gap-2 mb-2">
-                <div v-for="(f,i) in pendingFiles" :key="i"
-                  class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-300">
-                  📎 {{ f.name }}
-                  <button type="button" @click="pendingFiles.splice(i,1)" class="text-white/40 hover:text-red-400 transition">✕</button>
-                </div>
+              <label class="block text-xs font-medium text-white/50 mb-1.5">Đính kèm ảnh/tài liệu</label>
+              <div class="flex flex-wrap gap-2 items-center">
+                <label class="cursor-pointer text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/8 text-white/50 transition">
+                  + Chọn file
+                  <input type="file" class="hidden" multiple accept=".jpg,.jpeg,.png,.pdf,.webp" @change="onFileSelect" />
+                </label>
+                <span v-for="(f, i) in pendingFiles" :key="i"
+                  class="text-xs px-2 py-1 rounded bg-white/5 border border-white/10 text-white/50 flex items-center gap-1">
+                  {{ f.name }}
+                  <button type="button" @click="pendingFiles.splice(i,1)" class="text-white/30 hover:text-white/60">✕</button>
+                </span>
               </div>
-              <label class="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-white/20 hover:border-brand-500/40 bg-white/3 hover:bg-brand-500/5 cursor-pointer transition text-sm text-white/40 hover:text-white/60">
-                + Chọn file
-                <input type="file" multiple accept=".jpg,.jpeg,.png,.pdf,.webp" class="hidden" @change="onFileSelect" />
-              </label>
             </div>
-            <div class="flex gap-2 pt-1">
-              <button @click="submitForm" :disabled="form.processing"
-                class="flex-1 py-2.5 bg-brand-500 hover:bg-brand-400 text-black font-bold rounded-xl text-sm disabled:opacity-50 transition">
+            <div class="flex gap-2 pt-2">
+              <button type="button" @click="submitForm" :disabled="form.processing"
+                class="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-black text-sm font-bold transition disabled:opacity-50">
                 {{ form.processing ? 'Đang lưu...' : 'Lưu sự kiện' }}
               </button>
-              <button @click="showAddForm=false; selectedCte=null"
-                class="px-5 py-2.5 border border-glass hover:bg-white/5 text-white/50 rounded-xl text-sm transition">Huỷ</button>
+              <button type="button" @click="showAddForm=false; selectedCte=null"
+                class="px-4 py-2 rounded-xl border border-glass text-white/50 hover:bg-white/5 text-sm transition">Huỷ</button>
             </div>
           </div>
         </div>
 
-        <!-- Lịch sử sự kiện -->
-        <div class="rounded-2xl border border-glass bg-black/20 overflow-hidden">
+        <!-- Timeline events -->
+        <div class="rounded-2xl border border-glass overflow-hidden">
           <div class="px-5 py-4 border-b border-glass flex items-center justify-between">
-            <div class="text-sm font-semibold text-white/70">Lịch sử sự kiện</div>
-            <div class="text-xs text-white/40">{{ events?.total ?? 0 }} sự kiện</div>
+            <div class="text-sm font-medium text-white/70">
+              Lịch sử sự kiện lô <span class="text-brand-300 font-mono">{{ selectedBatch.code }}</span>
+            </div>
+            <div class="text-xs text-white/30">{{ events?.total ?? 0 }} sự kiện</div>
           </div>
 
           <div v-if="!events?.data?.length" class="flex flex-col items-center justify-center py-16 text-white/30">
@@ -490,56 +469,54 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
 
           <div v-else class="divide-y divide-white/5">
             <div v-for="ev in events.data" :key="ev.id" class="p-5 space-y-3">
-              <!-- Header -->
               <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-semibold text-white/90">{{ getCteName(ev) }}</span>
                     <span class="text-xs px-2 py-0.5 rounded-full border"
                       :class="ev.status==='published' ? 'border-green-500/40 bg-green-500/10 text-green-400' : 'border-white/10 bg-white/5 text-white/40'">
-                      {{ ev.status === 'published' ? 'Published' : ' Draft' }}
+                      {{ ev.status === 'published' ? 'Published' : 'Draft' }}
                     </span>
                   </div>
                   <div class="text-xs text-white/40 mt-0.5">{{ formatTime(ev.event_time) }}</div>
                 </div>
-                <!-- Actions — NÚT XEM luôn hiển thị -->
                 <div class="flex gap-1.5 flex-wrap">
                   <button @click="openView(ev)"
-                    class="text-xs px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 transition">
-                     Xem
-                  </button>
+                    class="text-xs px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 transition">👁 Xem</button>
                   <template v-if="ev.status !== 'published'">
                     <button @click="openEdit(ev)"
                       class="text-xs px-2.5 py-1 rounded-lg border border-glass hover:bg-white/5 text-white/50 transition">Sửa</button>
                     <button @click="publishEvent(ev)"
                       class="text-xs px-2.5 py-1 rounded-lg border border-brand-500/40 bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 transition">Publish</button>
                     <button @click="deleteEvent(ev)"
-                      class="text-xs px-2.5 py-1 rounded-lg border border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-red-400 transition">Xoá</button>
+                      class="text-xs px-2.5 py-1 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-400 transition">Xóa</button>
                   </template>
                 </div>
               </div>
-              <!-- 5W summary -->
-              <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-                <div v-if="ev.who_name" class="flex gap-1.5"><span class="text-white/30 shrink-0">WHO</span><span class="text-white/70">{{ ev.who_name }}</span></div>
-                <div v-if="ev.where_address" class="flex gap-1.5"><span class="text-white/30 shrink-0">WHERE</span><span class="text-white/70">{{ ev.where_address }}</span></div>
-                <div v-if="ev.why_reason" class="flex gap-1.5 col-span-2"><span class="text-white/30 shrink-0">WHY</span><span class="text-white/70">{{ ev.why_reason }}</span></div>
-              </div>
-              <!-- IPFS -->
-              <div v-if="ev.ipfs_cid" class="flex flex-wrap items-center gap-3 text-xs">
-                <a :href="ev.ipfs_url" target="_blank" class="flex items-center gap-1 text-brand-400 hover:text-brand-300 transition">
-                  <span>IPFS</span><span class="font-mono">{{ shortCid(ev.ipfs_cid) }}</span>
+
+              <!-- IPFS / BC badges -->
+              <div v-if="ev.ipfs_cid || ev.fabric_tx_id" class="flex gap-2 flex-wrap">
+                <a v-if="ev.ipfs_url" :href="ev.ipfs_url" target="_blank"
+                  class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-brand-500/30 bg-brand-500/10 text-brand-300 hover:bg-brand-500/20 transition">
+                  🔗 IPFS: {{ shortCid(ev.ipfs_cid) }}
                 </a>
+                <span v-if="ev.fabric_tx_id"
+                  class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-purple-500/30 bg-purple-500/10 text-purple-300">
+                  ⛓ BC: {{ ev.fabric_tx_id.slice(0,12) }}...
+                </span>
               </div>
+
               <!-- Attachments -->
               <div v-if="ev.attachments?.length" class="flex flex-wrap gap-2">
-                <a v-for="att in ev.attachments" :key="att.cid" :href="att.url" target="_blank"
-                  class="text-xs px-2 py-1 rounded-lg border border-white/10 bg-white/5 text-white/50 hover:text-white/80 transition flex items-center gap-1">
+                <a v-for="att in ev.attachments" :key="att.cid ?? att.url" :href="att.url" target="_blank"
+                  class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/8 text-white/50 transition">
                   📎 {{ att.name }}
                 </a>
               </div>
-              <!-- Upload (draft only) -->
+
+              <!-- Upload attachment (draft only) -->
               <div v-if="ev.status !== 'published'">
-                <label class="text-xs text-white/30 cursor-pointer hover:text-white/50 transition flex items-center gap-1">
+                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/8 text-white/40 transition">
                   {{ uploadingEvent === ev.id ? `Đang upload ${uploadProgress}%...` : '+ Đính kèm file' }}
                   <input type="file" class="hidden" accept=".jpg,.jpeg,.png,.pdf,.webp" @change="uploadFile(ev, $event.target.files?.[0])" />
                 </label>
@@ -565,21 +542,19 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
 
   </div>
 
-
+  <!-- Modal xem chi tiết -->
   <Teleport to="body">
     <Transition name="modal-fade">
       <div v-if="viewingEvent" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="closeView">
         <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-white/10 bg-[#0d1117] shadow-2xl overflow-hidden">
-
-          <!-- Header modal -->
           <div class="px-6 py-4 border-b border-white/8 flex items-start justify-between gap-3 shrink-0">
             <div>
               <div class="flex items-center gap-2 flex-wrap">
                 <h2 class="text-base font-bold text-white/90">{{ getCteName(viewingEvent) }}</h2>
                 <span class="text-xs px-2 py-0.5 rounded-full border"
                   :class="viewingEvent.status==='published' ? 'border-green-500/40 bg-green-500/10 text-green-400' : 'border-amber-500/40 bg-amber-500/10 text-amber-400'">
-                  {{ viewingEvent.status === 'published' ? 'Published' : ' Draft' }}
+                  {{ viewingEvent.status === 'published' ? 'Published' : 'Draft' }}
                 </span>
               </div>
               <div class="text-xs text-white/40 mt-1">
@@ -589,11 +564,7 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
             </div>
             <button @click="closeView" class="shrink-0 w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/40 hover:text-white/70 text-xl transition">✕</button>
           </div>
-
-          <!-- Body modal (scrollable) -->
           <div class="overflow-y-auto flex-1 p-6 space-y-5">
-
-            <!-- 5W index -->
             <div class="grid grid-cols-1 gap-3">
               <div v-if="viewingEvent.who_name" class="rounded-xl bg-white/5 border border-white/8 px-4 py-3">
                 <div class="text-[10px] text-white/30 uppercase tracking-widest mb-1">WHO — Người thực hiện</div>
@@ -615,8 +586,6 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
                 <div class="text-sm text-white/70">{{ viewingEvent.note }}</div>
               </div>
             </div>
-
-            <!-- KDE data (WHAT) -->
             <div v-if="viewingEvent.kde_data && Object.keys(viewingEvent.kde_data).length">
               <div class="text-[10px] text-white/30 uppercase tracking-widest mb-2">WHAT — Dữ liệu KDE chi tiết</div>
               <div class="rounded-xl border border-white/8 overflow-hidden">
@@ -627,46 +596,32 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
                 </div>
               </div>
             </div>
-
-            <!-- Attachments -->
             <div v-if="viewingEvent.attachments?.length">
-              <div class="text-[10px] text-white/30 uppercase tracking-widest mb-2">File đính kèm</div>
+              <div class="text-[10px] text-white/30 uppercase tracking-widest mb-2">Đính kèm</div>
               <div class="flex flex-wrap gap-2">
-                <a v-for="att in viewingEvent.attachments" :key="att.cid" :href="att.url" target="_blank"
-                  class="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-sm text-white/60 hover:text-white/90 transition">
-                  <span>📎</span>
-                  <div>
-                    <div class="text-xs font-medium">{{ att.name }}</div>
-                    <div class="text-[10px] text-white/30 font-mono">{{ shortCid(att.cid) }}</div>
-                  </div>
+                <a v-for="att in viewingEvent.attachments" :key="att.cid ?? att.url" :href="att.url" target="_blank"
+                  class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/8 text-white/50 transition">
+                  📎 {{ att.name }}
                 </a>
               </div>
             </div>
-
-            <!-- IPFS block (published only) -->
-            <div v-if="viewingEvent.ipfs_cid" class="rounded-xl border border-green-500/20 bg-green-500/5 p-4 space-y-2">
-              <div class="text-xs font-semibold text-green-400"> Đã ghi bất biến lên IPFS</div>
-              <div class="space-y-1.5 text-[11px]">
-                <div class="flex gap-2 items-start flex-wrap">
-                  <span class="text-white/30 shrink-0">CID</span>
-                  <a :href="viewingEvent.ipfs_url" target="_blank"
-                    class="font-mono text-brand-400 hover:text-brand-300 transition break-all">{{ viewingEvent.ipfs_cid }}</a>
-                </div>
-                <div v-if="viewingEvent.content_hash" class="flex gap-2 items-start">
-                  <span class="text-white/30 shrink-0">SHA-256</span>
-                  <span class="font-mono text-white/40 break-all text-[10px]">{{ viewingEvent.content_hash }}</span>
-                </div>
-                <div v-if="viewingEvent.published_at" class="flex gap-2 flex-wrap text-white/40">
-                  <span class="text-white/30 shrink-0">Published</span>
-                  <span>{{ formatTime(viewingEvent.published_at) }}</span>
-                  <span v-if="viewingEvent.publisher">· bởi {{ viewingEvent.publisher?.name }}</span>
-                </div>
+            <div v-if="viewingEvent.ipfs_cid || viewingEvent.fabric_tx_id" class="rounded-xl bg-white/5 border border-white/8 px-4 py-3 space-y-1">
+              <div class="text-[10px] text-white/30 uppercase tracking-widest mb-2">Blockchain / IPFS</div>
+              <div v-if="viewingEvent.ipfs_cid" class="flex gap-2 text-xs text-white/40">
+                <span class="text-white/30 shrink-0">IPFS CID</span>
+                <span class="font-mono text-brand-300">{{ viewingEvent.ipfs_cid }}</span>
+              </div>
+              <div v-if="viewingEvent.fabric_tx_id" class="flex gap-2 flex-wrap text-xs text-white/40">
+                <span class="text-white/30 shrink-0">Fabric TxID</span>
+                <span class="font-mono text-purple-300 break-all">{{ viewingEvent.fabric_tx_id }}</span>
+              </div>
+              <div v-if="viewingEvent.published_at" class="flex gap-2 flex-wrap text-white/40 text-xs">
+                <span class="text-white/30 shrink-0">Published</span>
+                <span>{{ formatTime(viewingEvent.published_at) }}</span>
+                <span v-if="viewingEvent.publisher">· bởi {{ viewingEvent.publisher?.name }}</span>
               </div>
             </div>
-
           </div>
-
-          <!-- Footer modal -->
           <div class="px-6 py-4 border-t border-white/8 flex gap-2 shrink-0">
             <a v-if="viewingEvent.ipfs_url" :href="viewingEvent.ipfs_url" target="_blank"
               class="text-xs px-3 py-2 rounded-xl border border-brand-500/30 bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 transition">
@@ -691,27 +646,29 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
         <div class="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-2xl border border-glass bg-[#0d1117] overflow-hidden">
           <div class="px-5 py-4 border-b border-glass flex items-center justify-between shrink-0">
-            <div class="font-bold text-white/90">Sửa: {{ getCteName(editingEvent) }}</div>
-            <button @click="editingEvent=null" class="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/40 text-lg">✕</button>
+            <div class="text-base font-semibold text-white/90">Sửa sự kiện</div>
+            <button @click="editingEvent=null" class="text-white/30 hover:text-white/60 text-xl">✕</button>
           </div>
           <div class="overflow-y-auto flex-1 p-5 space-y-4">
             <div>
-              <label class="text-xs text-white/50 mb-1 block">Thời gian</label>
+              <label class="block text-xs font-medium text-white/50 mb-1.5">Thời gian thực hiện</label>
               <input v-model="editForm.event_time" type="datetime-local" :class="inputCls" />
             </div>
             <div v-for="(val, key) in editKdeValues" :key="key">
-              <label class="text-xs text-white/40 mb-1 block">{{ kdeLabel(key) }}</label>
-              <textarea v-model="editKdeValues[key]" rows="2" :class="inputCls" class="resize-y" />
+              <label class="block text-xs font-medium text-white/50 mb-1.5">{{ kdeLabel(key) }}</label>
+              <input v-model="editKdeValues[key]" type="text" :class="inputCls" />
             </div>
             <div>
-              <label class="text-xs text-white/50 mb-1 block">Ghi chú</label>
-              <textarea v-model="editForm.note" rows="2" :class="inputCls" class="resize-none" />
+              <label class="block text-xs font-medium text-white/50 mb-1.5">Ghi chú</label>
+              <textarea v-model="editForm.note" :class="inputCls" rows="2"></textarea>
             </div>
           </div>
-          <div class="px-5 py-4 border-t border-glass flex gap-2 shrink-0">
+          <div class="px-5 py-4 border-t border-glass flex justify-end gap-2 shrink-0">
+            <button @click="editingEvent=null" class="text-xs px-4 py-2 rounded-xl border border-glass hover:bg-white/5 text-white/50 transition">Huỷ</button>
             <button @click="submitEdit" :disabled="editForm.processing"
-              class="flex-1 py-2 bg-brand-500 hover:bg-brand-400 text-black font-bold rounded-xl text-sm disabled:opacity-50 transition">Lưu thay đổi</button>
-            <button @click="editingEvent=null" class="px-5 py-2 border border-glass hover:bg-white/5 text-white/50 rounded-xl text-sm transition">Huỷ</button>
+              class="text-xs px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-black font-bold transition disabled:opacity-50">
+              {{ editForm.processing ? 'Đang lưu...' : 'Lưu thay đổi' }}
+            </button>
           </div>
         </div>
       </div>
@@ -721,6 +678,6 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
 </template>
 
 <style scoped>
-.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.15s ease; }
+.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 </style>

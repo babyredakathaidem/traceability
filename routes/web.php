@@ -18,6 +18,9 @@ use App\Http\Controllers\PublicController;
 use App\Http\Controllers\BatchSplitController;
 use App\Http\Controllers\BatchMergeController;
 use App\Http\Controllers\BatchTransferController;
+use App\Http\Controllers\Api\EpcisController;
+use App\Http\Controllers\CertificateController;
+
 
 
 // Onboarding
@@ -48,6 +51,27 @@ Route::post('/t/{token}/resolve', [QrScanController::class, 'resolvePublic'])->n
 Route::get('/v/{token}', [QrScanController::class, 'gatePrivate'])->name('trace.gate.private');
 Route::post('/v/{token}/resolve', [QrScanController::class, 'resolvePrivate'])->name('trace.resolve.private');
 
+Route::get('/01/{gtin}/10/{lot}', [QrScanController::class, 'resolveGs1Public'])
+    ->name('qr.gs1.public')
+    ->where([
+        'gtin' => '\d{8,14}',
+        'lot'  => '[A-Za-z0-9\-_.%]+',
+    ]);
+
+// GS1 Digital Link — gate (show location permission UI trước khi resolve)
+Route::get('/gs1/{gtin}/{lot}', [QrScanController::class, 'gateGs1Public'])
+    ->name('qr.gs1.gate')
+    ->where([
+        'gtin' => '\d{8,14}',
+        'lot'  => '[A-Za-z0-9\-_.%]+',
+    ]);
+
+Route::prefix('v1')->group(function () {
+
+    Route::get('/epcis/events/{batch_id}', [EpcisController::class, 'events'])
+        ->name('api.epcis.events')
+        ->where('batch_id', '\d+');
+});
 // IPFS verify — public endpoint cho người tiêu dùng
 Route::get('/verify/ipfs/{cid}', [TraceEventController::class, 'verifyIpfs'])->name('verify.ipfs');
 
@@ -188,6 +212,17 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])
         Route::get('/cte-templates', [TraceEventController::class, 'getTemplates'])
             ->name('api.cte-templates');
     });
+Route::prefix('certificates')->name('certificates.')->group(function () {
+    Route::get('/',                          [CertificateController::class, 'index'])    ->name('index');
+    Route::post('/',                         [CertificateController::class, 'store'])    ->name('store');
+    Route::put('/{certificate}',             [CertificateController::class, 'update'])   ->name('update');
+    Route::delete('/{certificate}',          [CertificateController::class, 'destroy'])  ->name('destroy');
+});
+
+// API endpoint cho dropdown (dùng trong BatchController)
+Route::get('/api/certificates/list', [CertificateController::class, 'listForBatch'])
+    ->name('api.certificates.list')
+    ->middleware(['auth', 'tenant.ready', 'tenant']);
 
 /*
 |--------------------------------------------------------------------------

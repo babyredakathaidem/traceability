@@ -1,6 +1,11 @@
 <script setup>
-import { Head, useForm, usePage } from '@inertiajs/vue3'
+import { Head, useForm, usePage, Link } from '@inertiajs/vue3'
 import { computed } from 'vue'
+import { 
+  AcademicCapIcon, 
+  ChevronRightIcon, 
+  InformationCircleIcon 
+} from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   enterprise: { type: Object, default: () => ({}) },
@@ -92,6 +97,31 @@ const labelCls = 'block text-xs text-white/50 mb-1'
           Xem file đã nộp
         </a>
       </div>
+    </div>
+
+    <!-- Section: Chứng chỉ & Tiêu chuẩn (Mới) -->
+    <div class="rounded-2xl border border-brand-500/20 bg-brand-500/5 p-5 flex items-center justify-between group hover:bg-brand-500/10 transition cursor-pointer relative overflow-hidden">
+      <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition">
+        <AcademicCapIcon class="w-32 h-32" />
+      </div>
+      
+      <div class="flex items-center gap-4 relative z-10">
+        <div class="p-3 bg-brand-500/20 rounded-xl text-brand-400">
+          <AcademicCapIcon class="w-8 h-8" />
+        </div>
+        <div>
+          <h3 class="text-lg font-bold text-white/90">Chứng chỉ & Tiêu chuẩn</h3>
+          <p class="text-sm text-white/50">Quản lý VietGAP, GlobalGAP, ISO... để gắn vào lô hàng.</p>
+        </div>
+      </div>
+
+      <Link 
+        :href="route('certificates.index')"
+        class="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-500/20 text-brand-300 hover:bg-brand-500 text-brand-950 transition font-bold text-sm relative z-10"
+      >
+        Quản lý ngay
+        <ChevronRightIcon class="w-4 h-4" />
+      </Link>
     </div>
 
     <!-- Form chỉnh sửa -->

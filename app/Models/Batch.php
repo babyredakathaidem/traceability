@@ -173,6 +173,10 @@ class Batch extends Model
     {
         return $this->hasMany(BatchTransfer::class);
     }
+    public function certificates() {
+        return $this->belongsToMany(Certificate::class, 'batch_certificates')
+                     ->withPivot('applied_at');
+     }
 
     public function pendingTransfer(): HasOne
     {

@@ -1,6 +1,20 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, markRaw } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
+import { 
+  Squares2X2Icon, 
+  CubeIcon, 
+  ArchiveBoxIcon, 
+  ClipboardDocumentListIcon, 
+  QrCodeIcon, 
+  UsersIcon, 
+  Cog6ToothIcon,
+  AcademicCapIcon,
+  ShieldCheckIcon,
+  WrenchScrewdriverIcon,
+  ArrowRightCircleIcon,
+  ChevronLeftIcon
+} from '@heroicons/vue/24/outline'
 
 const STAFF_MODE = 'hide'
 const collapsed  = ref(false)
@@ -30,8 +44,8 @@ const sections = computed(() => {
   if (isSuperAdmin.value) return [{
     title: 'Hệ thống',
     items: [
-      { label: 'Duyệt doanh nghiệp', href: '/sys/enterprises' },
-      { label: 'Cấu hình hệ thống',  href: '/sys/settings' },
+      { label: 'Duyệt doanh nghiệp', href: '/sys/enterprises', icon: ShieldCheckIcon },
+      { label: 'Cấu hình hệ thống',  href: '/sys/settings',    icon: WrenchScrewdriverIcon },
     ],
   }]
 
@@ -39,23 +53,24 @@ const sections = computed(() => {
     {
       title: 'Doanh nghiệp',
       items: [
-        { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Sản phẩm', href: '/products', requireAnyPerm: ['enterprise.products.view','enterprise.products.manage'] },
-        { label: 'Lô hàng',  href: '/batches',  requireAnyPerm: ['enterprise.batches.view','enterprise.batches.manage'] },
-        { label: 'Sự kiện truy xuất', href: '/events', requireAnyPerm: ['enterprise.trace_events.view','enterprise.trace_events.create','enterprise.trace_events.manage'] },
-        { label: 'QR Codes', href: '/qrcodes', requireAnyPerm: ['enterprise.qrcodes.view','enterprise.qrcodes.manage'] },
+        { label: 'Dashboard', href: '/dashboard', icon: Squares2X2Icon },
+        { label: 'Sản phẩm', href: '/products', icon: CubeIcon, requireAnyPerm: ['enterprise.products.view','enterprise.products.manage'] },
+        { label: 'Lô hàng',  href: '/batches',  icon: ArchiveBoxIcon, requireAnyPerm: ['enterprise.batches.view','enterprise.batches.manage'] },
+        { label: 'Sự kiện truy xuất', href: '/events', icon: ClipboardDocumentListIcon, requireAnyPerm: ['enterprise.trace_events.view','enterprise.trace_events.create','enterprise.trace_events.manage'] },
+        { label: 'Chứng chỉ', href: route('certificates.index'), icon: AcademicCapIcon, requireAnyPerm: ['enterprise.certificates.view','enterprise.certificates.manage'] },
+        { label: 'QR Codes', href: '/qrcodes', icon: QrCodeIcon, requireAnyPerm: ['enterprise.qrcodes.view','enterprise.qrcodes.manage'] },
       ],
     },
     {
       title: 'Quản trị',
       items: [
-        { label: 'Tài khoản nhân sự',    href: '/enterprise/users',    adminOnly: true },
-        { label: 'Cài đặt doanh nghiệp', href: '/enterprise/settings', adminOnly: true },
+        { label: 'Tài khoản nhân sự',    href: '/enterprise/users',    icon: UsersIcon, adminOnly: true },
+        { label: 'Cài đặt doanh nghiệp', href: '/enterprise/settings', icon: Cog6ToothIcon, adminOnly: true },
       ],
     },
   ]
 
-  return [{ title: 'Bắt đầu', items: [{ label: 'Đăng ký doanh nghiệp', href: '/onboarding/enterprise' }] }]
+  return [{ title: 'Bắt đầu', items: [{ label: 'Đăng ký doanh nghiệp', href: '/onboarding/enterprise', icon: ArrowRightCircleIcon }] }]
 })
 
 function shouldShow(item) {
@@ -69,6 +84,7 @@ function shouldShow(item) {
 }
 function isEnabled(item) {
   if (item.adminOnly) return isEnterpriseAdmin.value
+  if (!item.requireAnyPerm && !item.requireAllPerm) return true
   return canAny(item.requireAnyPerm) && canAll(item.requireAllPerm)
 }
 function sectionHasVisibleItems(s) {
@@ -81,9 +97,9 @@ function isActive(href) {
 }
 function itemClass(href, enabled) {
   if (!enabled) return 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-white/20 cursor-not-allowed select-none'
-  return ['flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition',
+  return ['flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition group',
     isActive(href)
-      ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20'
+      ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20 shadow-lg shadow-brand-500/5'
       : 'text-white/55 hover:text-white/90 hover:bg-white/5',
   ].join(' ')
 }
@@ -94,20 +110,6 @@ const roleLabel = computed(() => {
   if (isStaff.value)           return 'Nhân viên DN'
   return 'Người dùng'
 })
-
-// Ký hiệu hiển thị khi thu gọn
-const icons = {
-  'Dashboard':             '⊟',
-  'Sản phẩm':              '⊞',
-  'Lô hàng':               '⊠',
-  'Sự kiện truy xuất':     '⊕',
-  'QR Codes':              '⊟',
-  'Tài khoản nhân sự':     '⊛',
-  'Cài đặt doanh nghiệp':  '⊙',
-  'Duyệt doanh nghiệp':    '⊘',
-  'Cấu hình hệ thống':     '⊗',
-  'Đăng ký doanh nghiệp':  '▶',
-}
 </script>
 
 <template>
@@ -128,10 +130,7 @@ const icons = {
       <button @click="collapsed = !collapsed"
         class="ml-auto w-6 h-6 flex items-center justify-center text-white/25 hover:text-white/60 transition shrink-0"
         :title="collapsed ? 'Mở rộng' : 'Thu gọn'">
-        <svg class="w-3.5 h-3.5 transition-transform" :class="collapsed ? 'rotate-180' : ''"
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
+        <ChevronLeftIcon class="w-4 h-4 transition-transform" :class="collapsed ? 'rotate-180' : ''" stroke-width="2.5" />
       </button>
     </div>
 
@@ -151,9 +150,10 @@ const icons = {
                 :href="isEnabled(it) ? it.href : '#'"
                 :class="itemClass(it.href, isEnabled(it))"
                 :title="collapsed ? it.label : undefined">
-                <span class="shrink-0 w-5 text-center text-sm leading-none opacity-70">
-                  {{ icons[it.label] ?? '·' }}
-                </span>
+                <component :is="it.icon" 
+                  class="shrink-0 w-5 h-5 transition-colors" 
+                  :class="isActive(it.href) ? 'text-brand-300' : 'text-white/35 group-hover:text-white/80'" 
+                />
                 <span v-if="!collapsed" class="truncate">{{ it.label }}</span>
               </Link>
             </template>

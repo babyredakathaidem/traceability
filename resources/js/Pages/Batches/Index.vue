@@ -1,5 +1,5 @@
 <script setup>
-import { Head, router, useForm, usePage } from '@inertiajs/vue3'
+import { Head, router, useForm } from '@inertiajs/vue3'
 import { computed, ref, watch } from 'vue'
 
 import UiCard   from '@/Components/ui/UiCard.vue'
@@ -9,31 +9,16 @@ import UiTable  from '@/Components/ui/UiTable.vue'
 import UiModal  from '@/Components/ui/UiModal.vue'
 
 const props = defineProps({
-  batches:  { type: [Array, Object], default: () => [] },
-  products: { type: Array,           default: () => [] },
-  filters:  { type: Object,          default: () => ({}) },
+  batches:      { type: [Array, Object], default: () => [] },
+  products:     { type: Array,           default: () => [] },
+  certificates: { type: Array,           default: () => [] },
+  filters:      { type: Object,          default: () => ({}) },
 })
-
-const flash = usePage().props.flash || {}
 
 const list      = computed(() => Array.isArray(props.batches) ? props.batches : props.batches?.data ?? [])
 const paginator = computed(() => Array.isArray(props.batches) ? null : props.batches)
 
 const selectCls = 'w-full rounded-xl border border-glass bg-cosmic-900 px-3 py-2 text-sm text-white/90 focus:outline-none focus:border-brand-500/60'
-
-// ── Danh sách chứng chỉ ──────────────────────────────────
-const CERT_OPTIONS = [
-  { value: 'VietGAP',   label: 'VietGAP',         desc: 'Thực hành nông nghiệp tốt Việt Nam' },
-  { value: 'GlobalGAP', label: 'GlobalGAP',        desc: 'Thực hành nông nghiệp tốt quốc tế' },
-  { value: 'ISO 22000', label: 'ISO 22000',        desc: 'Hệ thống quản lý ATTP' },
-  { value: 'HACCP',     label: 'HACCP',            desc: 'Phân tích mối nguy & điểm kiểm soát tới hạn' },
-  { value: 'ISO 9001',  label: 'ISO 9001',         desc: 'Hệ thống quản lý chất lượng' },
-  { value: 'Organic',   label: 'Hữu cơ (Organic)', desc: 'Sản xuất nông nghiệp hữu cơ' },
-  { value: 'OCOP',      label: 'OCOP',             desc: 'Chương trình mỗi xã một sản phẩm' },
-  { value: 'FDA',       label: 'FDA',              desc: 'Cục quản lý Thực phẩm & Dược phẩm Hoa Kỳ' },
-  { value: 'BRC',       label: 'BRC',              desc: 'Tiêu chuẩn toàn cầu về ATTP' },
-  { value: 'SQF',       label: 'SQF',              desc: 'Safe Quality Food' },
-]
 
 // ── Prefix map ────────────────────────────────────────────
 const PREFIX_MAP = {
@@ -59,8 +44,8 @@ const statusLabel = (s) => ({
   active:   'Hoạt động',
   completed:'Hoàn thành',
   recalled: 'Thu hồi',
-  split:    'Đã tách (lưu trữ)',
-  consumed: 'Đã dùng (lưu trữ)',
+  split:    'Đã tách',
+  consumed: 'Đã dùng',
   received: 'Đã nhận',
 }[s] ?? s)
 
@@ -101,13 +86,13 @@ const createForm = useForm({
   expiry_date:     '',
   quantity:        '',
   unit:            '',
-  certifications:  [],
+  certificate_ids: [],
 })
 
-function toggleCreateCert(cert) {
-  const idx = createForm.certifications.indexOf(cert)
-  if (idx >= 0) createForm.certifications.splice(idx, 1)
-  else createForm.certifications.push(cert)
+function toggleCreateCert(certId) {
+  const idx = createForm.certificate_ids.indexOf(certId)
+  if (idx >= 0) createForm.certificate_ids.splice(idx, 1)
+  else createForm.certificate_ids.push(certId)
 }
 
 const submitCreate = () => {
@@ -126,7 +111,7 @@ const editForm = useForm({
   expiry_date:     '',
   quantity:        '',
   unit:            '',
-  certifications:  [],
+  certificate_ids: [],
 })
 
 function openEdit(b) {
@@ -136,14 +121,14 @@ function openEdit(b) {
   editForm.expiry_date     = b.expiry_date ?? ''
   editForm.quantity        = b.quantity ?? ''
   editForm.unit            = b.unit ?? ''
-  editForm.certifications  = b.certifications ?? []
+  editForm.certificate_ids = b.certificates?.map(c => c.id) ?? []
   showEdit.value           = true
 }
 
-function toggleEditCert(cert) {
-  const idx = editForm.certifications.indexOf(cert)
-  if (idx >= 0) editForm.certifications.splice(idx, 1)
-  else editForm.certifications.push(cert)
+function toggleEditCert(certId) {
+  const idx = editForm.certificate_ids.indexOf(certId)
+  if (idx >= 0) editForm.certificate_ids.splice(idx, 1)
+  else editForm.certificate_ids.push(certId)
 }
 
 const submitEdit = () => {
@@ -163,9 +148,7 @@ const removeBatch = (b) => {
 const prevPage = () => { if (paginator.value?.prev_page_url) router.visit(paginator.value.prev_page_url, { preserveState: true }) }
 const nextPage = () => { if (paginator.value?.next_page_url) router.visit(paginator.value.next_page_url, { preserveState: true }) }
 
-// Lô có thể tách/chuyển
 const canOperate = (b) => ['active', 'received'].includes(b.status)
-// Lô đã kết thúc chuỗi
 const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
 </script>
 
@@ -182,14 +165,11 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
         <div class="text-white/50 text-sm mt-1">Mỗi lô gắn với sản phẩm, mã lô tự sinh theo danh mục.</div>
       </div>
       <div class="flex items-center gap-3 flex-wrap">
-        <div v-if="flash.success" class="text-sm text-green-300 px-3 py-1 rounded-lg border border-green-500/30 bg-green-500/10">
-          {{ flash.success }}
-        </div>
         <a :href="route('batch-transfers.inbox')">
-          <UiButton variant="outline">📥 Nhận hàng</UiButton>
+          <UiButton variant="outline"> Nhận Lô</UiButton>
         </a>
         <a :href="route('batches.merge.show')">
-          <UiButton variant="outline">⊕ Gộp lô</UiButton>
+          <UiButton variant="outline"> Gộp lô</UiButton>
         </a>
         <UiButton @click="showCreate = true">+ Tạo lô mới</UiButton>
       </div>
@@ -228,10 +208,10 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
 
           <!-- Chứng chỉ -->
           <td class="px-4 py-3">
-            <div v-if="b.certifications?.length" class="flex flex-wrap gap-1">
-              <span v-for="cert in b.certifications" :key="cert"
+            <div v-if="b.certificates?.length" class="flex flex-wrap gap-1">
+              <span v-for="cert in b.certificates" :key="cert.id"
                 class="text-[10px] px-1.5 py-0.5 rounded border border-brand-500/30 bg-brand-500/10 text-brand-300">
-                {{ cert }}
+                {{ cert.name }}
               </span>
             </div>
             <span v-else class="text-white/25 text-xs">—</span>
@@ -265,7 +245,6 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
               <a :href="route('batches.qrs', b.id)">
                 <UiButton size="sm" variant="outline">QR</UiButton>
               </a>
-              <!-- Chỉ lô active/received mới tách/chuyển -->
               <template v-if="canOperate(b)">
                 <a :href="route('batches.split.show', b.id)">
                   <UiButton size="sm" variant="outline">Tách</UiButton>
@@ -274,7 +253,6 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
                   <UiButton size="sm" variant="outline">Chuyển</UiButton>
                 </a>
               </template>
-              <!-- Lô archived: chỉ xem, không thao tác -->
               <span v-if="isArchived(b)" class="text-[10px] text-white/25 self-center">Lưu trữ</span>
               <UiButton size="sm" variant="danger" @click="removeBatch(b)">Xóa</UiButton>
             </div>
@@ -305,52 +283,52 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
   <UiModal :show="showCreate" title="Tạo lô mới" @close="showCreate = false">
     <div class="space-y-4">
 
-      <!-- Sản phẩm -->
       <div>
         <label class="block text-xs text-white/50 mb-1">Sản phẩm <span class="text-red-400">*</span></label>
         <select v-model="createForm.product_id" :class="selectCls">
           <option value="" disabled class="bg-cosmic-900">Chọn sản phẩm</option>
           <option v-for="p in products" :key="p.id" :value="p.id" class="bg-cosmic-900">
-            {{ p.name }}{{ p.gtin ? ` — GTIN: ${p.gtin}` : '' }}
+            {{ p.name }}{{ p.gtin ? ` (${p.gtin})` : '' }}
           </option>
         </select>
-        <div v-if="createForm.product_id" class="mt-1 text-xs text-white/30">
-          Mã lô sẽ có dạng: <span class="text-brand-300 font-mono">{{ getCodePrefix(createForm.product_id) }}XX001</span>
-        </div>
-        <div v-if="createForm.errors.product_id" class="text-xs text-red-400 mt-1">{{ createForm.errors.product_id }}</div>
+        <div v-if="createForm.errors.product_id" class="text-red-400 text-xs mt-1">{{ createForm.errors.product_id }}</div>
       </div>
 
-      <!-- Ngày + số lượng -->
-      <div class="grid grid-cols-2 gap-3">
-        <UiInput label="Ngày sản xuất" type="date"   v-model="createForm.production_date" />
-        <UiInput label="Hạn sử dụng"   type="date"   v-model="createForm.expiry_date" />
-        <UiInput label="Số lượng"       type="number" v-model="createForm.quantity" />
-        <UiInput label="Đơn vị"                       v-model="createForm.unit" placeholder="kg, tấn, thùng..." />
+      <!-- Prefix preview -->
+      <div v-if="createForm.product_id" class="text-xs text-white/40">
+        Mã lô sẽ có dạng: <span class="font-mono text-brand-300">{{ getCodePrefix(createForm.product_id) }}-XXXXXX</span>
       </div>
 
-      <UiInput label="Mô tả (tuỳ chọn)" v-model="createForm.description" />
+      <div class="grid grid-cols-2 gap-4">
+        <UiInput label="Ngày sản xuất" type="date"   v-model="createForm.production_date" :error="createForm.errors.production_date" />
+        <UiInput label="Hạn sử dụng"   type="date"   v-model="createForm.expiry_date"     :error="createForm.errors.expiry_date" />
+        <UiInput label="Số lượng"       type="number" v-model="createForm.quantity"         :error="createForm.errors.quantity" />
+        <UiInput label="Đơn vị"                       v-model="createForm.unit"             :error="createForm.errors.unit" placeholder="kg, hộp, thùng..." />
+      </div>
+
+      <UiInput label="Mô tả" v-model="createForm.description" :error="createForm.errors.description" />
 
       <!-- Chứng chỉ -->
       <div>
-        <label class="block text-xs text-white/50 mb-1.5">
-          Chứng chỉ / Tiêu chuẩn áp dụng
-          <span class="text-white/25 ml-1">(dùng để gợi ý lý do sự kiện)</span>
-        </label>
-        <div class="flex flex-wrap gap-2">
+        <label class="block text-xs text-white/50 mb-1.5">Chứng chỉ / Tiêu chuẩn áp dụng</label>
+        <div v-if="certificates.length === 0" class="text-[10px] text-white/30 italic">
+          Chưa có chứng chỉ nào trong hệ thống. <a :href="route('certificates.index')" class="text-brand-400 hover:underline">Quản lý chứng chỉ tại đây.</a>
+        </div>
+        <div v-else class="flex flex-wrap gap-2">
           <button
-            v-for="cert in CERT_OPTIONS" :key="cert.value"
+            v-for="cert in certificates" :key="cert.id"
             type="button"
-            @click="toggleCreateCert(cert.value)"
+            @click="toggleCreateCert(cert.id)"
             class="flex flex-col px-3 py-2 rounded-xl border text-left transition"
-            :class="createForm.certifications.includes(cert.value)
+            :class="createForm.certificate_ids.includes(cert.id)
               ? 'border-brand-500/60 bg-brand-500/15'
               : 'border-glass bg-white/5 hover:bg-white/8'"
           >
             <span class="text-xs font-semibold"
-              :class="createForm.certifications.includes(cert.value) ? 'text-brand-300' : 'text-white/70'">
-              {{ cert.label }}
+              :class="createForm.certificate_ids.includes(cert.id) ? 'text-brand-300' : 'text-white/70'">
+              {{ cert.name }}
             </span>
-            <span class="text-[10px] text-white/30 mt-0.5">{{ cert.desc }}</span>
+            <span class="text-[10px] text-white/30 mt-0.5">{{ cert.organization }}</span>
           </button>
         </div>
       </div>
@@ -368,7 +346,6 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
   <UiModal :show="showEdit" title="Sửa lô hàng" @close="showEdit = false">
     <div class="space-y-4">
 
-      <!-- Info readonly -->
       <div class="p-3 rounded-xl bg-white/5 border border-glass text-xs space-y-1">
         <div class="flex justify-between">
           <span class="text-white/40">Mã lô</span>
@@ -393,23 +370,26 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
 
       <UiInput label="Mô tả" v-model="editForm.description" :error="editForm.errors.description" />
 
-      <!-- Chứng chỉ -->
       <div>
         <label class="block text-xs text-white/50 mb-1.5">Chứng chỉ / Tiêu chuẩn áp dụng</label>
-        <div class="flex flex-wrap gap-2">
+        <div v-if="certificates.length === 0" class="text-[10px] text-white/30 italic">
+          Chưa có chứng chỉ nào trong hệ thống.
+        </div>
+        <div v-else class="flex flex-wrap gap-2">
           <button
-            v-for="cert in CERT_OPTIONS" :key="cert.value"
+            v-for="cert in certificates" :key="cert.id"
             type="button"
-            @click="toggleEditCert(cert.value)"
+            @click="toggleEditCert(cert.id)"
             class="flex flex-col px-3 py-2 rounded-xl border text-left transition"
-            :class="editForm.certifications.includes(cert.value)
+            :class="editForm.certificate_ids.includes(cert.id)
               ? 'border-brand-500/60 bg-brand-500/15'
               : 'border-glass bg-white/5 hover:bg-white/8'"
           >
             <span class="text-xs font-semibold"
-              :class="editForm.certifications.includes(cert.value) ? 'text-brand-300' : 'text-white/70'">
-              {{ cert.label }}
+              :class="editForm.certificate_ids.includes(cert.id) ? 'text-brand-300' : 'text-white/70'">
+              {{ cert.name }}
             </span>
+            <span class="text-[10px] text-white/30 mt-0.5">{{ cert.organization }}</span>
           </button>
         </div>
       </div>
@@ -418,7 +398,7 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
     <template #actions>
       <UiButton variant="outline" size="sm" @click="showEdit = false">Huỷ</UiButton>
       <UiButton :disabled="editForm.processing" @click="submitEdit">
-        {{ editForm.processing ? 'Đang lưu...' : 'Lưu' }}
+        {{ editForm.processing ? 'Đang lưu...' : 'Lưu thay đổi' }}
       </UiButton>
     </template>
   </UiModal>

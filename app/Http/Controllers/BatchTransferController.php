@@ -5,42 +5,41 @@ namespace App\Http\Controllers;
 use App\Mail\TransferAcceptedMail;
 use App\Mail\TransferSentMail;
 use App\Models\Batch;
+use App\Models\BatchLineage;
 use App\Models\BatchTransfer;
 use App\Models\Enterprise;
 use App\Models\TraceEvent;
-use App\Models\User;
-use App\Services\BlockchainService;
 use App\Services\IpfsService;
+use App\Traits\HasTenant;
+use App\Traits\NotifiesEnterpriseAdmins;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Inertia\Inertia;
 
 class BatchTransferController extends Controller
 {
-    public function __construct(
-        private IpfsService $ipfs,
-        private BlockchainService $blockchain,
-    ) {}
+    use HasTenant, NotifiesEnterpriseAdmins;
 
-    private function tenantId(Request $request): int
+    protected IpfsService $ipfs;
+
+    public function __construct(IpfsService $ipfs)
     {
-        return (int) $request->user()->enterprise_id;
+        $this->ipfs = $ipfs;
     }
 
-    // ── Inbox (DN B xem danh sách transfer đến) ───────────
+    // ── Danh sách inbox ───────────────────────────────────
     public function inbox(Request $request)
     {
         $tenantId = $this->tenantId($request);
 
         $transfers = BatchTransfer::with([
-            'batch:id,code,product_name,quantity,unit',
+            'batch:id,code,product_name,unit',
             'fromEnterprise:id,name,code',
+            'toEnterprise:id,name,code',
         ])
             ->where('to_enterprise_id', $tenantId)
             ->where('status', 'pending')
-            ->latest()
+            ->latest('transferred_at')
             ->get();
 
         return Inertia::render('Batches/TransferInbox', [
@@ -48,20 +47,30 @@ class BatchTransferController extends Controller
         ]);
     }
 
-    // ── DN A gửi yêu cầu chuyển giao ─────────────────────
+    // ── Show form chuyển giao ─────────────────────────────
+    public function show(Request $request, Batch $batch)
+    {
+        $tenantId = $this->tenantId($request);
+        abort_unless($batch->enterprise_id === $tenantId, 403);
+
+        return Inertia::render('Batches/Transfer', [
+            'batch' => $batch->only([
+                'id', 'code', 'product_name', 'quantity',
+                'current_quantity', 'unit', 'status',
+            ]),
+        ]);
+    }
+
+    // ── DN A tạo yêu cầu chuyển giao ─────────────────────
     public function store(Request $request, Batch $batch)
     {
         $tenantId = $this->tenantId($request);
         abort_unless($batch->enterprise_id === $tenantId, 403);
         abort_unless(in_array($batch->status, ['active', 'received']), 422);
 
-        if ($batch->pendingTransfer()->exists()) {
-            return back()->withErrors(['error' => 'Lô này đang có yêu cầu chuyển giao chờ xác nhận.']);
-        }
-
         $data = $request->validate([
-            'to_enterprise_code' => 'required|string|exists:enterprises,code',
-            'quantity'           => 'required|integer|min:1',
+            'to_enterprise_code' => 'required|string|max:30',
+            'quantity'           => 'required|numeric|min:0.01',
             'invoice_no'         => 'nullable|string|max:100',
             'note'               => 'nullable|string|max:500',
         ]);
@@ -70,8 +79,8 @@ class BatchTransferController extends Controller
             ->where('status', 'approved')
             ->first();
 
-        if (!$toEnterprise) {
-            return back()->withErrors(['to_enterprise_code' => 'Doanh nghiệp không tồn tại hoặc chưa được duyệt.']);
+        if (! $toEnterprise) {
+            return back()->withErrors(['to_enterprise_code' => 'Không tìm thấy doanh nghiệp với mã này.']);
         }
 
         if ($toEnterprise->id === $tenantId) {
@@ -95,7 +104,7 @@ class BatchTransferController extends Controller
             'transferred_at'     => now(),
         ]);
 
-        // ── Gửi mail thông báo cho admin DN B ─────────────
+        // Gửi mail thông báo cho admin DN B
         $this->notifyEnterpriseAdmins(
             $toEnterprise->id,
             new TransferSentMail($transfer->load(['batch', 'fromEnterprise', 'toEnterprise']))
@@ -121,7 +130,7 @@ class BatchTransferController extends Controller
             $fromEnterpriseName = $transfer->fromEnterprise->name;
             $toEnterpriseName   = $transfer->toEnterprise->name;
 
-            // ── Event 1: DN A — Chuyển giao lô ──────────────
+            // ── Event 1: DN A — Ghi nhận chuyển giao lô ─────
             $eventSent = TraceEvent::create([
                 'batch_id'      => $batch->id,
                 'enterprise_id' => $transfer->from_enterprise_id,
@@ -177,9 +186,32 @@ class BatchTransferController extends Controller
                 'batch_type'    => 'received',
                 'status'        => 'received',
             ]);
+
+            // ── Ghi BatchLineage cho transfer ─────────────────
+            //
+            // Tại sao cần lineage cho transfer?
+            //   - Batch ID KHÔNG đổi khi transfer, chỉ enterprise_id đổi.
+            //   - events của cả 2 DN đều có cùng batch_id → loadEvents() tự gom.
+            //   - Tuy nhiên ghi lineage giúp:
+            //     (1) Thể hiện rõ điểm chuyển giao trong chuỗi cung ứng
+            //     (2) QrScanController@collectAncestorBatchIds có thể theo dõi
+            //     (3) Export EPCIS 2.0 cần lineage rõ ràng
+            //     (4) Audit trail đầy đủ theo TCVN 12850:2019
+            //
+            // input_batch_id = output_batch_id = batch->id (cùng 1 batch record)
+            // → Khác với split/merge (tạo batch record mới)
+            // → Ở đây lineage thể hiện "điểm cắt" chuyển quyền sở hữu
+            BatchLineage::create([
+                'transformation_type' => 'transfer',
+                'input_batch_id'      => $batch->id,   // ID không đổi
+                'output_batch_id'     => $batch->id,   // ID không đổi — chủ sở hữu thay đổi
+                'quantity'            => $transfer->quantity,
+                'unit'                => $transfer->unit,
+                'event_id'            => $eventReceived->id,
+            ]);
         });
 
-        // ── Gửi mail thông báo cho DN A ───────────────────
+        // Gửi mail thông báo cho DN A
         $transfer->refresh()->load(['batch', 'fromEnterprise', 'toEnterprise']);
         $this->notifyEnterpriseAdmins(
             $transfer->from_enterprise_id,
@@ -210,110 +242,33 @@ class BatchTransferController extends Controller
         return back()->with('success', 'Đã từ chối yêu cầu chuyển giao.');
     }
 
-    public function show(Request $request, Batch $batch)
-    {
-        $tenantId = $this->tenantId($request);
-        abort_unless($batch->enterprise_id === $tenantId, 403);
-
-        return Inertia::render('Batches/Transfer', [
-            'batch' => [
-                'id'               => $batch->id,
-                'code'             => $batch->code,
-                'product_name'     => $batch->getDisplayName(),
-                'current_quantity' => $batch->current_quantity ?? $batch->quantity,
-                'unit'             => $batch->unit,
-                'status'           => $batch->status,
-            ],
-        ]);
-    }
-
-    // ── Helpers ───────────────────────────────────────────
-
-    /**
-     * Auto-publish event lên IPFS + Fabric (non-blocking).
-     * Lỗi chỉ log, không rollback transaction.
-     */
+    // ── Helper: publish event lên IPFS + Fabric ───────────
     private function autoPublishEvent(TraceEvent $event, Batch $batch): void
     {
         try {
-            $batch->loadMissing(['enterprise', 'product']);
-
-            $payload = [
-                'system'       => 'AGU Traceability',
-                'version'      => '1.0',
-                'tcvn_ref'     => 'TCVN 12850:2019',
-                'event_id'     => $event->id,
-                'event_type'   => $event->event_type,
-                'cte_code'     => $event->cte_code,
-                'batch_code'   => $batch->code,
-                'product_name' => $batch->product_name,
-                'enterprise'   => $batch->enterprise?->name,
-                'event_time'   => $event->event_time?->toISOString(),
-                'who_name'     => $event->who_name,
-                'where'        => $event->where_address,
-                'kde_data'     => $event->kde_data ?? [],
-                'note'         => $event->note,
-            ];
-
-            $contentHash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE));
+            $payload     = $event->toIpfsPayload();
+            $contentHash = hash('sha256', json_encode($payload));
             $ipfsResult  = $this->ipfs->uploadJson($payload);
 
-            if (!$ipfsResult['success']) {
-                Log::warning("AutoPublish IPFS failed event#{$event->id}", $ipfsResult);
-                return;
-            }
-
-            $ipfsCid = $ipfsResult['cid'];
-            $txHash  = null;
-
-            try {
-                $fabricResult = $this->blockchain->recordEvent(
-                    (string) $event->id,
-                    $batch->code,
-                    $batch->enterprise?->code ?? (string) $event->enterprise_id,
-                    $event->cte_code,
-                    $contentHash,
-                    $ipfsCid,
-                    $event->who_name ?? 'system',
-                );
-                if ($fabricResult['success']) {
-                    $txHash = $fabricResult['data']['txId']
-                        ?? $fabricResult['data']['tx_hash']
-                        ?? null;
-                }
-            } catch (\Throwable $e) {
-                Log::warning("AutoPublish Fabric failed event#{$event->id}: " . $e->getMessage());
-            }
-
-            $event->update([
+            $updateData = [
                 'status'       => 'published',
                 'content_hash' => $contentHash,
-                'ipfs_cid'     => $ipfsCid,
-                'ipfs_url'     => "https://gateway.pinata.cloud/ipfs/{$ipfsCid}",
-                'tx_hash'      => $txHash,
-                'published_by' => $event->enterprise_id,
                 'published_at' => now(),
-            ]);
-        } catch (\Throwable $e) {
-            Log::error("AutoPublish failed event#{$event->id}: " . $e->getMessage());
-        }
-    }
+                'published_by' => null,
+            ];
 
-    /**
-     * Gửi mail cho tất cả enterprise_admin của 1 DN.
-     */
-    private function notifyEnterpriseAdmins(int $enterpriseId, $mailable): void
-    {
-        try {
-            $admins = User::where('enterprise_id', $enterpriseId)
-                ->where('role', 'enterprise_admin')
-                ->get(['email']);
-
-            foreach ($admins as $admin) {
-                Mail::to($admin->email)->queue($mailable);
+            if ($ipfsResult) {
+                $updateData['ipfs_cid'] = $ipfsResult['cid'];
+                $updateData['ipfs_url'] = $ipfsResult['url'];
             }
+
+            $event->update($updateData);
         } catch (\Throwable $e) {
-            Log::warning("notifyEnterpriseAdmins failed: " . $e->getMessage());
+            // Không fail transaction khi IPFS lỗi — chỉ log
+            \Log::error('auto-publish transfer event failed', [
+                'event_id' => $event->id,
+                'error'    => $e->getMessage(),
+            ]);
         }
     }
 }

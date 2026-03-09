@@ -367,4 +367,66 @@ class QrScanController extends Controller
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
         return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
+    public function gateGs1Public(string $gtin, string $lot)
+    {
+        // Decode lot nếu URL-encoded
+        $lotDecoded = urldecode($lot);
+
+        // Kiểm tra QR có tồn tại không (tra theo gtin_used + lot code)
+        $qr = Qrcode::with('batch:id,code')
+            ->where('type', 'public')
+            ->where('gtin_used', str_pad($gtin, 14, '0', STR_PAD_LEFT))
+            ->whereHas('batch', fn($q) => $q->where('code', 'like', '%' . $lotDecoded . '%'))
+            ->first();
+
+        if (! $qr) {
+            return Inertia::render('Trace/Blocked', [
+                'title'   => 'QR không tìm thấy',
+                'message' => "Không tìm thấy sản phẩm với GTIN {$gtin} và lô {$lotDecoded}.",
+            ]);
+        }
+
+        // Truyền token để GatePublic redirect về resolvePublic (giữ nguyên flow geo-check)
+        return Inertia::render('Trace/GatePublic', [
+            'token' => $qr->token,
+            'gs1'   => [
+                'gtin' => $gtin,
+                'lot'  => $lotDecoded,
+            ],
+        ]);
+    }
+    public function resolveGs1Public(Request $request, string $gtin, string $lot)
+    {
+        $lotDecoded  = urldecode($lot);
+        $gtinPadded  = str_pad($gtin, 14, '0', STR_PAD_LEFT);
+
+        // Tìm QR theo GTIN và batch code
+        $qr = Qrcode::with([
+            'batch:id,code,product_name,product_id,enterprise_id,production_date,expiry_date,quantity,unit,status,batch_type,parent_batch_id',
+            'batch.product:id,name,gtin,description,unit,image_path,category_id',
+            'batch.product.category:id,name_vi,icon,code',
+            'batch.enterprise:id,name,code,address_detail,province,phone,email',
+        ])
+            ->where('type', 'public')
+            ->where('gtin_used', $gtinPadded)
+            ->whereHas('batch', function ($q) use ($lotDecoded) {
+                // Lot code được normalize khi tạo → so sánh với original code
+                $q->where('code', 'like', '%' . $lotDecoded . '%')
+                ->orWhere('code', $lotDecoded);
+            })
+            ->first();
+
+        if (! $qr) {
+            $this->logInvalid($request, 'public', "gs1:{$gtin}/10/{$lot}", 'gs1_not_found');
+            return Inertia::render('Trace/Blocked', [
+                'title'   => 'QR không hợp lệ',
+                'message' => "Không tìm thấy sản phẩm với GTIN {$gtin} và lô {$lotDecoded}.",
+            ]);
+        }
+
+        // Reuse toàn bộ geo-check logic từ resolvePublic
+        // Chuyển hướng nội bộ về resolvePublic với token
+        $request->merge(['_gs1_resolved' => true]);
+        return $this->resolvePublic($request, $qr->token);
+    }
 }

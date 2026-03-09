@@ -1,15 +1,14 @@
 <script setup>
-import { Head, router, useForm, usePage } from '@inertiajs/vue3'
+import { Head, router, useForm } from '@inertiajs/vue3'
 import { ref } from 'vue'
 import UiCard   from '@/Components/ui/UiCard.vue'
 import UiButton from '@/Components/ui/UiButton.vue'
 import UiModal  from '@/Components/ui/UiModal.vue'
+import UiInput  from '@/Components/ui/UiInput.vue'
 
 const props = defineProps({
   transfers: { type: Array, default: () => [] },
 })
-
-const flash = usePage().props.flash || {}
 
 // ── Accept ───────────────────────────────────────────────
 function accept(transfer) {
@@ -52,7 +51,6 @@ function submitReject() {
         <div class="text-2xl font-bold mt-1 text-white/90">Yêu cầu chuyển giao đến</div>
         <div class="text-white/50 text-sm mt-1">Các lô hàng đang chờ bạn xác nhận nhận.</div>
       </div>
-      <div v-if="flash.success" class="text-sm text-green-300">{{ flash.success }}</div>
     </div>
 
     <!-- Danh sách -->

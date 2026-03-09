@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Batch;
+use App\Models\BatchLineage;
+use App\Models\Certificate;
 use App\Models\Product;
+use App\Services\QrCodeService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -30,27 +33,31 @@ class BatchController extends Controller
      */
     private function generateBatchCode(int $tenantId, string $categoryCode): string
     {
-        $prefix    = self::CATEGORY_PREFIX[$categoryCode] ?? 'KH';
-        $entPart   = str_pad($tenantId, 2, '0', STR_PAD_LEFT);
-        $pattern   = $prefix . $entPart . '%';
+        $prefix  = self::CATEGORY_PREFIX[$categoryCode] ?? 'KH';
+        $entPart = str_pad($tenantId, 2, '0', STR_PAD_LEFT);
+        $pattern = $prefix . $entPart . '%';
 
         $last = Batch::where('enterprise_id', $tenantId)
             ->where('code', 'like', $pattern)
             ->orderByDesc('code')
             ->value('code');
 
-        $seq  = $last ? (intval(substr($last, -3)) + 1) : 1;
+        $seq = $last ? (intval(substr($last, -3)) + 1) : 1;
 
         return $prefix . $entPart . str_pad($seq, 3, '0', STR_PAD_LEFT);
     }
 
+    // ── index ─────────────────────────────────────────────
     public function index(Request $request)
     {
         $tenantId  = $this->tenantId($request);
         $q         = $request->string('q')->toString();
         $productId = $request->query('product_id');
 
-        $batches = Batch::with('product:id,name,category_id')
+        $batches = Batch::with([
+            'product:id,name,category_id',
+            'certificates:id,name,organization,status', // ← mới
+        ])
             ->where('enterprise_id', $tenantId)
             ->when($q, fn($query) => $query->where(function ($sub) use ($q) {
                 $sub->where('code', 'like', "%{$q}%")
@@ -76,77 +83,125 @@ class BatchController extends Controller
                 'category_code' => $p->category?->code,
             ]);
 
+        // Danh sách chứng chỉ active của DN → cho dropdown khi tạo/sửa lô
+        $certificates = Certificate::where('enterprise_id', $tenantId)
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'organization', 'certificate_no', 'expiry_date'])
+            ->map(fn($c) => [
+                'id'             => $c->id,
+                'name'           => $c->name,
+                'organization'   => $c->organization,
+                'certificate_no' => $c->certificate_no,
+                'expiry_date'    => $c->expiry_date?->format('d/m/Y'),
+            ]);
+
         return Inertia::render('Batches/Index', [
-            'batches'  => $batches,
-            'products' => $products,
-            'filters'  => ['q' => $q, 'product_id' => $productId],
+            'batches'      => $batches,
+            'products'     => $products,
+            'certificates' => $certificates, // ← mới
+            'filters'      => ['q' => $q, 'product_id' => $productId],
         ]);
     }
 
+    // ── store ─────────────────────────────────────────────
     public function store(Request $request)
     {
         $tenantId = $this->tenantId($request);
 
         $data = $request->validate([
-            'product_id'      => 'required|integer|exists:products,id',
-            'description'     => 'nullable|string|max:2000',
-            'production_date' => 'nullable|date',
-            'expiry_date'     => 'nullable|date|after_or_equal:production_date',
-            'quantity'        => 'nullable|integer|min:1',
-            'unit'            => 'nullable|string|max:50',
-            'certifications'  => 'nullable|array',           // ← thêm
-            'certifications.*'=> 'nullable|string|max:100',
+            'product_id'       => 'required|integer|exists:products,id',
+            'description'      => 'nullable|string|max:2000',
+            'production_date'  => 'nullable|date',
+            'expiry_date'      => 'nullable|date|after_or_equal:production_date',
+            'quantity'         => 'nullable|integer|min:1',
+            'unit'             => 'nullable|string|max:50',
+            // ← Thay certifications JSON bằng certificate_ids
+            'certificate_ids'   => 'nullable|array',
+            'certificate_ids.*' => 'integer|exists:certificates,id',
         ]);
 
-        // Đảm bảo product thuộc đúng tenant
         $product = Product::with('category:id,code')
             ->where('id', $data['product_id'])
             ->where('enterprise_id', $tenantId)
             ->first();
 
-        if (!$product) {
+        if (! $product) {
             return back()->withErrors(['product_id' => 'Sản phẩm không hợp lệ.']);
         }
 
-        // Tự sinh mã lô
         $code = $this->generateBatchCode($tenantId, $product->category?->code ?? 'khac');
 
-        Batch::create([
-            'enterprise_id'  => $tenantId,
-            'product_id'     => $product->id,
-            'code'           => $code,
-            'product_name'   => $product->name,
-            'description'    => $data['description'] ?? null,
-            'production_date'=> $data['production_date'] ?? null,
-            'expiry_date'    => $data['expiry_date'] ?? null,
-            'quantity'       => $data['quantity'] ?? null,
-            'unit'           => $data['unit'] ?? null,
-            'certifications'  => $data['certifications'] ?? [], 
+        $batch = Batch::create([
+            'enterprise_id'    => $tenantId,
+            'product_id'       => $product->id,
+            'code'             => $code,
+            'product_name'     => $product->name,
+            'description'      => $data['description'] ?? null,
+            'production_date'  => $data['production_date'] ?? null,
+            'expiry_date'      => $data['expiry_date'] ?? null,
+            'quantity'         => $data['quantity'] ?? null,
+            'current_quantity' => $data['quantity'] ?? null,
+            'unit'             => $data['unit'] ?? $product->unit ?? null,
+            'status'           => 'active',
+            'batch_type'       => 'original',
         ]);
 
-        return back()->with('success', "Đã tạo lô {$code}.");
+        // Gắn chứng chỉ vào lô qua pivot table batch_certificates
+        if (! empty($data['certificate_ids'])) {
+            $validCertIds = Certificate::where('enterprise_id', $tenantId)
+                ->whereIn('id', $data['certificate_ids'])
+                ->pluck('id');
+
+            $batch->certificates()->sync($validCertIds);
+        }
+
+        // Đảm bảo QR codes tồn tại (bao gồm GS1 Digital Link)
+        app(QrCodeService::class)->ensureForBatch($tenantId, $batch->id);
+
+        return redirect()->route('batches.index')
+            ->with('success', "Đã tạo lô {$code}.");
     }
 
+    // ── update ────────────────────────────────────────────
     public function update(Request $request, Batch $batch)
     {
         $tenantId = $this->tenantId($request);
         abort_unless($batch->enterprise_id === $tenantId, 403);
 
         $data = $request->validate([
-            'description'    => 'nullable|string|max:2000',
-            'production_date'=> 'nullable|date',
-            'expiry_date'    => 'nullable|date|after_or_equal:production_date',
-            'quantity'       => 'nullable|integer|min:1',
-            'unit'           => 'nullable|string|max:50',
-            'certifications'  => 'nullable|array',           
-            'certifications.*'=> 'nullable|string|max:100',
+            'description'      => 'nullable|string|max:2000',
+            'production_date'  => 'nullable|date',
+            'expiry_date'      => 'nullable|date|after_or_equal:production_date',
+            'quantity'         => 'nullable|integer|min:1',
+            'unit'             => 'nullable|string|max:50',
+            // ← Thay certifications JSON bằng certificate_ids
+            'certificate_ids'   => 'nullable|array',
+            'certificate_ids.*' => 'integer|exists:certificates,id',
         ]);
 
-        $batch->update($data);
+        $batch->update([
+            'description'     => $data['description'] ?? null,
+            'production_date' => $data['production_date'] ?? null,
+            'expiry_date'     => $data['expiry_date'] ?? null,
+            'quantity'        => $data['quantity'] ?? $batch->quantity,
+            'unit'            => $data['unit'] ?? $batch->unit,
+        ]);
+
+        // Sync chứng chỉ — chỉ giữ các cert thuộc đúng tenant
+        $certIds = [];
+        if (! empty($data['certificate_ids'])) {
+            $certIds = Certificate::where('enterprise_id', $tenantId)
+                ->whereIn('id', $data['certificate_ids'])
+                ->pluck('id')
+                ->toArray();
+        }
+        $batch->certificates()->sync($certIds);
 
         return back()->with('success', 'Cập nhật lô thành công.');
     }
 
+    // ── destroy ───────────────────────────────────────────
     public function destroy(Request $request, Batch $batch)
     {
         $tenantId = $this->tenantId($request);
@@ -160,97 +215,97 @@ class BatchController extends Controller
 
         return back()->with('success', 'Xóa lô thành công.');
     }
+
+    // ── lineage ───────────────────────────────────────────
     public function lineage(Request $request, Batch $batch)
-{
-    $tenantId = $this->tenantId($request);
-    abort_unless($batch->enterprise_id === $tenantId, 403);
+    {
+        $tenantId = $this->tenantId($request);
+        abort_unless($batch->enterprise_id === $tenantId, 403);
 
-    // Load đầy đủ relations cho batch hiện tại
-    $batch->load([
-        'product:id,name,gtin,category_id',
-        'product.category:id,name_vi,icon',
-        'enterprise:id,name,code',
-        'originEnterprise:id,name,code',
-        'publishedEvents',
-        'childBatches.enterprise:id,name,code',
-        'childBatches.publishedEvents',
-    ]);
+        $batch->load([
+            'product:id,name,gtin,category_id',
+            'product.category:id,name_vi,icon',
+            'enterprise:id,name,code',
+            'originEnterprise:id,name,code',
+            'publishedEvents',
+            'childBatches.enterprise:id,name,code',
+            'childBatches.publishedEvents',
+        ]);
 
-    // Đệ quy build ancestors
-    $ancestors = $batch->buildAncestors();
+        $ancestors = $batch->buildAncestors();
 
-    // Flatten cây thành danh sách nodes + edges cho frontend vẽ sơ đồ
-    $nodes = [];
-    $edges = [];
+        $nodes = [];
+        $edges = [];
+        $this->flattenLineage($batch, $ancestors, $nodes, $edges, $tenantId);
 
-    $this->flattenLineage($batch, $ancestors, $nodes, $edges, $tenantId);
+        // Load children (lô con tách ra từ batch này)
+        $children = BatchLineage::where('input_batch_id', $batch->id)
+            ->where('transformation_type', 'split')
+            ->with(['outputBatch.enterprise:id,name,code', 'outputBatch.publishedEvents'])
+            ->get();
 
-    // Load children (lô con được tách ra từ batch này)
-    $children = \App\Models\BatchLineage::where('input_batch_id', $batch->id)
-        ->where('transformation_type', 'split')
-        ->with(['outputBatch.enterprise:id,name,code', 'outputBatch.publishedEvents'])
-        ->get();
+        foreach ($children as $child) {
+            $cb = $child->outputBatch;
+            if (! $cb) continue;
 
-    foreach ($children as $child) {
-        $cb = $child->outputBatch;
-        if (!$cb) continue;
+            $cbId      = 'batch-' . $cb->id;
+            $currentId = 'batch-' . $batch->id;
 
-        $cbId = 'batch-' . $cb->id;
-        $currentId = 'batch-' . $batch->id;
-
-        if (!isset($nodes[$cbId])) {
-            $nodes[$cbId] = $this->formatNode($cb, 'split_child');
+            if (! isset($nodes[$cbId])) {
+                $nodes[$cbId] = $this->formatNode($cb, 'split_child');
+            }
+            $edges[] = [
+                'from'  => $currentId,
+                'to'    => $cbId,
+                'type'  => 'split',
+                'label' => 'Tách → ' . ($child->quantity ?? '') . ' ' . ($child->unit ?? ''),
+            ];
         }
-        $edges[] = [
-            'from'     => $currentId,
-            'to'       => $cbId,
-            'type'     => 'split',
-            'label'    => 'Tách → ' . ($child->quantity ?? '') . ' ' . ($child->unit ?? ''),
-        ];
+
+        // Merged outputs (batch này là input của 1 merge nào đó)
+        $mergedOutputs = BatchLineage::where('input_batch_id', $batch->id)
+            ->where('transformation_type', 'merge')
+            ->with(['outputBatch.enterprise:id,name,code', 'outputBatch.publishedEvents'])
+            ->get();
+
+        foreach ($mergedOutputs as $mo) {
+            $ob = $mo->outputBatch;
+            if (! $ob) continue;
+
+            $obId      = 'batch-' . $ob->id;
+            $currentId = 'batch-' . $batch->id;
+
+            if (! isset($nodes[$obId])) {
+                $nodes[$obId] = $this->formatNode($ob, 'merge_output');
+            }
+            $edges[] = [
+                'from'  => $currentId,
+                'to'    => $obId,
+                'type'  => 'merge',
+                'label' => 'Gộp → ' . ($mo->quantity ?? '') . ' ' . ($mo->unit ?? ''),
+            ];
+        }
+
+        return Inertia::render('Batches/Lineage', [
+            'batch' => $this->formatLineageBatch($batch),
+            'nodes' => array_values($nodes),
+            'edges' => $edges,
+        ]);
     }
 
-    // Merged outputs (batch này là input của merge nào đó)
-    $mergedOutputs = \App\Models\BatchLineage::where('input_batch_id', $batch->id)
-        ->where('transformation_type', 'merge')
-        ->with(['outputBatch.enterprise:id,name,code', 'outputBatch.publishedEvents'])
-        ->get();
-
-    foreach ($mergedOutputs as $mo) {
-        $ob = $mo->outputBatch;
-        if (!$ob) continue;
-
-        $obId = 'batch-' . $ob->id;
-        $currentId = 'batch-' . $batch->id;
-
-        if (!isset($nodes[$obId])) {
-            $nodes[$obId] = $this->formatNode($ob, 'merge_output');
-        }
-        $edges[] = [
-            'from'  => $currentId,
-            'to'    => $obId,
-            'type'  => 'merge',
-            'label' => 'Gộp → ' . ($mo->quantity ?? '') . ' ' . ($mo->unit ?? ''),
-        ];
-    }
-
-    return Inertia::render('Batches/Lineage', [
-        'batch'   => $this->formatLineageBatch($batch),
-        'nodes'   => array_values($nodes),
-        'edges'   => $edges,
-    ]);
-}
+    // ── Private helpers ───────────────────────────────────
 
     private function flattenLineage(
-        \App\Models\Batch $currentBatch,
-        array             $ancestors,
-        array             &$nodes,
-        array             &$edges,
-        int               $tenantId
+        Batch  $currentBatch,
+        array  $ancestors,
+        array  &$nodes,
+        array  &$edges,
+        int    $tenantId
     ): void {
         $currentId = 'batch-' . $currentBatch->id;
 
-        if (!isset($nodes[$currentId])) {
-            $isOwn = $currentBatch->enterprise_id === $tenantId;
+        if (! isset($nodes[$currentId])) {
+            $isOwn             = $currentBatch->enterprise_id === $tenantId;
             $nodes[$currentId] = $this->formatNode($currentBatch, $isOwn ? 'current' : 'external');
         }
 
@@ -261,7 +316,7 @@ class BatchController extends Controller
                 $parentBatch = $ancestor['batch'];
                 $parentId    = 'batch-' . $parentBatch->id;
 
-                if (!isset($nodes[$parentId])) {
+                if (! isset($nodes[$parentId])) {
                     $nodes[$parentId] = $this->formatNode($parentBatch, 'parent');
                 }
 
@@ -272,21 +327,18 @@ class BatchController extends Controller
                     'label' => 'Tách lô',
                 ];
 
-                // Đệ quy lên cha của cha
-                if (!empty($ancestor['ancestors'])) {
+                if (! empty($ancestor['ancestors'])) {
                     $this->flattenLineage($parentBatch, $ancestor['ancestors'], $nodes, $edges, $tenantId);
                 }
-            }
-
-            elseif ($rel === 'merged_from' && isset($ancestor['batch'])) {
+            } elseif ($rel === 'merged_from' && isset($ancestor['batch'])) {
                 $inputBatch = $ancestor['batch'];
                 $inputId    = 'batch-' . $inputBatch->id;
 
-                if (!isset($nodes[$inputId])) {
+                if (! isset($nodes[$inputId])) {
                     $nodes[$inputId] = $this->formatNode($inputBatch, 'merge_input');
                 }
 
-                $qty = isset($ancestor['quantity']) ? $ancestor['quantity'] . ' ' . ($ancestor['unit'] ?? '') : '';
+                $qty     = isset($ancestor['quantity']) ? $ancestor['quantity'] . ' ' . ($ancestor['unit'] ?? '') : '';
                 $edges[] = [
                     'from'  => $inputId,
                     'to'    => $currentId,
@@ -294,24 +346,21 @@ class BatchController extends Controller
                     'label' => 'Gộp' . ($qty ? " ({$qty})" : ''),
                 ];
 
-                if (!empty($ancestor['ancestors'])) {
+                if (! empty($ancestor['ancestors'])) {
                     $this->flattenLineage($inputBatch, $ancestor['ancestors'], $nodes, $edges, $tenantId);
                 }
-            }
-
-            elseif ($rel === 'received_from' && isset($ancestor['transfer'])) {
+            } elseif ($rel === 'received_from' && isset($ancestor['transfer'])) {
                 $transfer = $ancestor['transfer'];
                 $fromEnt  = $transfer->fromEnterprise;
+                $fromId   = 'enterprise-' . ($fromEnt?->id ?? 'unknown');
 
-                // Tạo pseudo-node cho DN gửi
-                $fromId = 'enterprise-' . ($fromEnt?->id ?? 'unknown');
-                if (!isset($nodes[$fromId])) {
+                if (! isset($nodes[$fromId])) {
                     $nodes[$fromId] = [
-                        'id'      => $fromId,
-                        'type'    => 'enterprise',
-                        'label'   => $fromEnt?->name ?? 'DN không xác định',
-                        'code'    => $fromEnt?->code,
-                        'batch'   => null,
+                        'id'    => $fromId,
+                        'type'  => 'enterprise',
+                        'label' => $fromEnt?->name ?? 'DN không xác định',
+                        'code'  => $fromEnt?->code,
+                        'batch' => null,
                     ];
                 }
 
@@ -325,47 +374,38 @@ class BatchController extends Controller
         }
     }
 
-    /**
-     * Format 1 batch thành node cho frontend
-     */
-    private function formatNode(\App\Models\Batch $batch, string $type): array
+    private function formatNode(Batch $batch, string $type): array
     {
         return [
-            'id'             => 'batch-' . $batch->id,
-            'type'           => $type,
-            'batch_id'       => $batch->id,
-            'code'           => $batch->code,
-            'product_name'   => $batch->product?->name ?? $batch->product_name ?? '—',
-            'batch_type'     => $batch->batch_type,
-            'status'         => $batch->status,
-            'enterprise'     => $batch->enterprise?->name,
-            'enterprise_code'=> $batch->enterprise?->code,
-            'event_count'    => $batch->publishedEvents?->count() ?? 0,
-            'quantity'       => $batch->current_quantity ?? $batch->quantity,
-            'unit'           => $batch->unit,
+            'id'              => 'batch-' . $batch->id,
+            'type'            => $type,
+            'batch_id'        => $batch->id,
+            'code'            => $batch->code,
+            'product_name'    => $batch->product?->name ?? $batch->product_name ?? '—',
+            'batch_type'      => $batch->batch_type,
+            'status'          => $batch->status,
+            'enterprise'      => $batch->enterprise?->name,
+            'enterprise_code' => $batch->enterprise?->code,
+            'event_count'     => $batch->publishedEvents?->count() ?? 0,
+            'quantity'        => $batch->current_quantity ?? $batch->quantity,
+            'unit'            => $batch->unit,
         ];
     }
 
-    /**
-     * Format batch chính để truyền sang Vue
-     */
-    private function formatLineageBatch(\App\Models\Batch $batch): array
+    private function formatLineageBatch(Batch $batch): array
     {
         return [
-            'id'           => $batch->id,
-            'code'         => $batch->code,
-            'product_name' => $batch->product?->name ?? $batch->product_name,
-            'batch_type'   => $batch->batch_type,
-            'status'       => $batch->status,
-            'quantity'     => $batch->current_quantity ?? $batch->quantity,
-            'unit'         => $batch->unit,
-            'enterprise'   => $batch->enterprise?->name,
-            'category'     => $batch->product?->category ? [
-                'name_vi' => $batch->product->category->name_vi,
-                'icon'    => $batch->product->category->icon,
+            'id'              => $batch->id,
+            'code'            => $batch->code,
+            'product_name'    => $batch->product?->name ?? $batch->product_name ?? '—',
+            'batch_type'      => $batch->batch_type,
+            'status'          => $batch->status,
+            'enterprise'      => $batch->enterprise?->name,
+            'enterprise_code' => $batch->enterprise?->code,
+            'product'         => $batch->product ? [
+                'name' => $batch->product->name,
+                'gtin' => $batch->product->gtin,
             ] : null,
-            'completeness' => $batch->completenessScore(),
-            'event_count'  => $batch->publishedEvents->count(),
         ];
     }
 }
