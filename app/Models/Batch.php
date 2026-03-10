@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Models\Concerns\BelongsToTenant;
+use Illuminate\Support\Collection;
 
 class Batch extends Model
 {
@@ -26,7 +27,7 @@ class Batch extends Model
         'batch_type',
         'current_quantity',
         'origin_enterprise_id',
-        'parent_batch_id',       
+        'parent_batch_id',
         'completed_at',
         'certifications',
     ];
@@ -35,7 +36,7 @@ class Batch extends Model
         'production_date' => 'date',
         'expiry_date'     => 'date',
         'completed_at'    => 'datetime',
-        'certifications'   => 'array',
+        'certifications'  => 'array',
     ];
 
     // ── Relations ─────────────────────────────────────────
@@ -48,6 +49,11 @@ class Batch extends Model
     public function enterprise(): BelongsTo
     {
         return $this->belongsTo(Enterprise::class);
+    }
+
+    public function originEnterprise(): BelongsTo
+    {
+        return $this->belongsTo(Enterprise::class, 'origin_enterprise_id');
     }
 
     public function events(): HasMany
@@ -75,80 +81,6 @@ class Batch extends Model
         return $this->hasMany(BatchRecall::class)->latest();
     }
 
-    // ── Helpers ───────────────────────────────────────────
-
-    public function getDisplayName(): string
-    {
-        return $this->product?->name ?? $this->product_name ?? 'Không rõ';
-    }
-
-    public function isRecalled(): bool
-    {
-        return $this->status === 'recalled';
-    }
-
-    public function isActive(): bool
-    {
-        return $this->status === 'active';
-    }
-
-    /**
-     * Tính completeness score theo TCVN 12850
-     * = required CTEs đã có event published / tổng required CTEs
-     */
-    public function completenessScore(): array
-    {
-        $category = $this->product?->category;
-        if (!$category) {
-            return ['score' => 0, 'required_total' => 0, 'required_done' => 0, 'missing' => []];
-        }
-
-        $requiredCtes = CteTemplate::where('category_id', $category->id)
-            ->where('is_required', true)
-            ->orderBy('step_order')
-            ->get(['code', 'name_vi', 'step_order']);
-
-        if ($requiredCtes->isEmpty()) {
-            return ['score' => 100, 'required_total' => 0, 'required_done' => 0, 'missing' => []];
-        }
-
-        $publishedCteCodes = $this->publishedEvents()
-            ->whereNotNull('cte_code')
-            ->pluck('cte_code')
-            ->unique()
-            ->toArray();
-
-        $missing = $requiredCtes->filter(
-            fn($cte) => !in_array($cte->code, $publishedCteCodes)
-        )->values();
-
-        $done  = $requiredCtes->count() - $missing->count();
-        $score = (int) round(($done / $requiredCtes->count()) * 100);
-
-        return [
-            'score'          => $score,
-            'required_total' => $requiredCtes->count(),
-            'required_done'  => $done,
-            'missing'        => $missing->map(fn($c) => [
-                'code'       => $c->code,
-                'name_vi'    => $c->name_vi,
-                'step_order' => $c->step_order,
-            ])->toArray(),
-        ];
-    }
-
-    /**
-     * Lô đủ điều kiện publish QR (completeness 100%)
-     */
-    public function canPublishQr(): bool
-    {
-        return $this->completenessScore()['score'] === 100;
-    }
-    public function originEnterprise(): BelongsTo
-    {
-        return $this->belongsTo(Enterprise::class, 'origin_enterprise_id');
-    }
-
     public function parentBatch(): BelongsTo
     {
         return $this->belongsTo(Batch::class, 'parent_batch_id');
@@ -173,14 +105,91 @@ class Batch extends Model
     {
         return $this->hasMany(BatchTransfer::class);
     }
-    public function certificates() {
+
+    public function certificates()
+    {
         return $this->belongsToMany(Certificate::class, 'batch_certificates')
-                     ->withPivot('applied_at');
-     }
+            ->withPivot('applied_at');
+    }
 
     public function pendingTransfer(): HasOne
     {
         return $this->hasOne(BatchTransfer::class)->where('status', 'pending')->latest();
+    }
+
+    // ── Helpers ───────────────────────────────────────────
+
+    public function getDisplayName(): string
+    {
+        return $this->product?->name ?? $this->product_name ?? 'Không tên';
+    }
+
+    public function isRecalled(): bool
+    {
+        return $this->status === 'recalled';
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CAS CADE RECALL — Thu hồi dây chuyền (TCVN 12850:2019)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Lấy toàn bộ "hậu duệ" của lô hàng này (đệ quy, giới hạn 10 tầng).
+     *
+     * Cơ chế duyệt:
+     *   1. childBatches: tìm lô con được tách ra (batch_type='split', parent_batch_id=this->id)
+     *   2. batch_lineage: tìm lô đầu ra khi lô này là đầu vào của một phép merge
+     *      (transformation_type='merge', input_batch_id=this->id)
+     *
+     * Trả về Collection<Batch> — không trùng lặp, không bao gồm lô gốc.
+     *
+     * @param int $maxDepth  Giới hạn độ sâu đệ quy (tránh vòng lặp vô hạn)
+     * @param array $visited  Danh sách batch_id đã duyệt (internal, không truyền từ ngoài)
+     * @return \Illuminate\Support\Collection<Batch>
+     */
+    public function getAllDescendants(int $maxDepth = 10, array &$visited = []): Collection
+    {
+        // Đánh dấu lô hiện tại đã duyệt — tránh vòng lặp
+        $visited[] = $this->id;
+
+        if ($maxDepth <= 0) {
+            return collect();
+        }
+
+        $descendants = collect();
+
+        // ── 1. Lô con qua split (parent_batch_id) ─────────────────────
+        $splitChildren = Batch::where('parent_batch_id', $this->id)
+            ->whereNotIn('id', $visited)
+            ->with(['enterprise:id,name,code'])
+            ->get();
+
+        foreach ($splitChildren as $child) {
+            $descendants->push($child);
+            // Đệ quy xuống lô con của lô con
+            $grandChildren = $child->getAllDescendants($maxDepth - 1, $visited);
+            $descendants = $descendants->merge($grandChildren);
+        }
+
+        // ── 2. Lô đầu ra qua merge (batch_lineage) ────────────────────
+        $mergeOutputIds = BatchLineage::where('input_batch_id', $this->id)
+            ->where('transformation_type', 'merge')
+            ->pluck('output_batch_id');
+
+        $mergeOutputs = Batch::whereIn('id', $mergeOutputIds)
+            ->whereNotIn('id', $visited)
+            ->with(['enterprise:id,name,code'])
+            ->get();
+
+        foreach ($mergeOutputs as $output) {
+            $descendants->push($output);
+            // Đệ quy tiếp xuống các lô con của lô gộp
+            $grandChildren = $output->getAllDescendants($maxDepth - 1, $visited);
+            $descendants = $descendants->merge($grandChildren);
+        }
+
+        // Loại trùng theo id trước khi trả về
+        return $descendants->unique('id')->values();
     }
 
     // ── buildAncestors — đệ quy lấy toàn bộ cây phả hệ ──────────
@@ -194,9 +203,9 @@ class Batch extends Model
                 ->find($this->parent_batch_id);
             if ($parent) {
                 $ancestors[] = [
-                    'batch'      => $parent,
-                    'relation'   => 'split_from',
-                    'ancestors'  => $parent->buildAncestors(),
+                    'batch'     => $parent,
+                    'relation'  => 'split_from',
+                    'ancestors' => $parent->buildAncestors(),
                 ];
             }
         }
@@ -212,31 +221,13 @@ class Batch extends Model
                 $inputBatch = $lineage->inputBatch;
                 if ($inputBatch) {
                     $ancestors[] = [
-                        'batch'    => $inputBatch,
-                        'relation' => 'merged_from',
-                        'quantity' => $lineage->quantity,
-                        'unit'     => $lineage->unit,
-                        'ancestors'=> $inputBatch->buildAncestors(),
+                        'batch'     => $inputBatch,
+                        'relation'  => 'merged_from',
+                        'quantity'  => $lineage->quantity,
+                        'unit'      => $lineage->unit,
+                        'ancestors' => $inputBatch->buildAncestors(),
                     ];
                 }
-            }
-        }
-
-        // 3. Nếu là received → tìm transfer event
-        if ($this->batch_type === 'received') {
-            $transfer = BatchTransfer::where('batch_id', $this->id)
-                ->where('status', 'accepted')
-                ->with(['fromEnterprise', 'transferEvent'])
-                ->latest('accepted_at')
-                ->first();
-
-            if ($transfer) {
-                $ancestors[] = [
-                    'batch'    => $this,
-                    'relation' => 'received_from',
-                    'transfer' => $transfer,
-                    'ancestors'=> [],
-                ];
             }
         }
 

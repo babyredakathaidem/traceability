@@ -85,6 +85,7 @@ class BatchMergeController extends Controller
             $outputBatch = Batch::create([
                 'enterprise_id'        => $tenantId,
                 'origin_enterprise_id' => $tenantId,
+                'product_id'           => $inputBatches->first()->product_id, // ← Thêm dòng này
                 'product_name'         => $data['output_product_name'],
                 'code'                 => $newCode,
                 'batch_type'           => 'merged',

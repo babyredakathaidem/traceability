@@ -66,13 +66,13 @@ const maxTopScan = computed(() => Math.max(...props.topBatches.map(b => b.scan_c
     <!-- Stat cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-      <Link href="/products" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 transition block">
+      <Link href="/products" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block" data-aos="fade-up" data-aos-delay="100">
         <div class="text-xs text-white/40 uppercase tracking-wider">Sản phẩm</div>
         <div class="text-3xl font-extrabold text-white/90 mt-2">{{ stats.products ?? 0 }}</div>
         <div class="text-xs text-white/40 mt-1">đang quản lý</div>
       </Link>
 
-      <Link href="/batches" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 transition block">
+      <Link href="/batches" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block" data-aos="fade-up" data-aos-delay="200">
         <div class="text-xs text-white/40 uppercase tracking-wider">Lô hàng</div>
         <div class="text-3xl font-extrabold text-white/90 mt-2">{{ stats.batches?.total ?? 0 }}</div>
         <div class="flex gap-2 mt-2 flex-wrap">
@@ -81,7 +81,7 @@ const maxTopScan = computed(() => Math.max(...props.topBatches.map(b => b.scan_c
         </div>
       </Link>
 
-      <Link href="/events" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 transition block">
+      <Link href="/events" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block" data-aos="fade-up" data-aos-delay="300">
         <div class="text-xs text-white/40 uppercase tracking-wider">Sự kiện</div>
         <div class="text-3xl font-extrabold text-white/90 mt-2">{{ stats.events?.total ?? 0 }}</div>
         <div class="flex gap-2 mt-2 flex-wrap">
@@ -90,7 +90,7 @@ const maxTopScan = computed(() => Math.max(...props.topBatches.map(b => b.scan_c
         </div>
       </Link>
 
-      <div class="bg-white/5 border border-glass rounded-2xl p-5">
+      <div class="bg-white/5 border border-glass rounded-2xl p-5 hover:-translate-y-1 transition-all duration-300 block" data-aos="fade-up" data-aos-delay="400">
         <div class="text-xs text-white/40 uppercase tracking-wider">Lượt quét QR</div>
         <div class="text-3xl font-extrabold text-white/90 mt-2">{{ stats.scans?.total ?? 0 }}</div>
         <div class="flex gap-2 mt-2 flex-wrap">
@@ -105,7 +105,7 @@ const maxTopScan = computed(() => Math.max(...props.topBatches.map(b => b.scan_c
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
       <!-- Biểu đồ scan 14 ngày -->
-      <div class="lg:col-span-2 bg-white/5 border border-glass rounded-2xl p-5">
+      <div class="lg:col-span-2 bg-white/5 border border-glass rounded-2xl p-5" data-aos="fade-right" data-aos-delay="500">
         <div class="text-xs text-white/40 uppercase tracking-wider mb-4">Lượt quét — 14 ngày gần nhất</div>
 
         <div class="flex items-end gap-1 h-32">
@@ -143,7 +143,7 @@ const maxTopScan = computed(() => Math.max(...props.topBatches.map(b => b.scan_c
       </div>
 
       <!-- Top lô được quét -->
-      <div class="bg-white/5 border border-glass rounded-2xl p-5">
+      <div class="bg-white/5 border border-glass rounded-2xl p-5" data-aos="fade-left" data-aos-delay="600">
         <div class="text-xs text-white/40 uppercase tracking-wider mb-4">Top lô được quét nhiều nhất</div>
 
         <div v-if="topBatches.length === 0" class="text-sm text-white/30 text-center py-4">

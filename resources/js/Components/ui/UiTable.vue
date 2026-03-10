@@ -19,7 +19,7 @@ defineProps({
         </tr>
       </thead>
 
-      <tbody class="divide-y divide-white/10">
+      <tbody class="divide-y divide-white/10" v-auto-animate>
         <slot />
       </tbody>
     </table>

@@ -4,6 +4,11 @@ import { createInertiaApp } from '@inertiajs/vue3'
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers'
 import { createApp, h } from 'vue'
 
+// Animation
+import AOS from 'aos'
+import 'aos/dist/aos.css'
+import { autoAnimatePlugin } from '@formkit/auto-animate/vue'
+
 // Ziggy
 import { ZiggyVue } from '../../vendor/tightenco/ziggy'
 
@@ -54,6 +59,20 @@ createInertiaApp({
     const vueApp = createApp({ render: () => h(App, props) })
     vueApp.use(plugin)
     vueApp.use(ZiggyVue, window.Ziggy)
+    vueApp.use(autoAnimatePlugin)
+    
+    // Khởi tạo AOS
+    AOS.init({
+      duration: 800,
+      once: true,
+      easing: 'ease-out-quad',
+    })
+
+    // Re-init AOS khi Inertia chuyển trang
+    document.addEventListener('inertia:finish', () => {
+      AOS.refresh()
+    })
+
     vueApp.mount(el)
   },
 })  

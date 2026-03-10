@@ -14,8 +14,14 @@ const props = defineProps({
 const publicQr  = computed(() => props.qrs?.find(q => q.type === 'public'))
 const privateQr = computed(() => props.qrs?.find(q => q.type === 'private'))
 
-const publicLink  = computed(() => publicQr.value  ? `${props.publicUrlBase}/${publicQr.value.token}`  : '')
-const privateLink = computed(() => privateQr.value ? `${props.privateUrlBase}/${privateQr.value.token}` : '')
+const publicLink  = computed(() => {
+  if (!publicQr.value) return ''
+  return publicQr.value.gs1_digital_link || `${props.publicUrlBase}/${publicQr.value.token}`
+})
+const privateLink = computed(() => {
+  if (!privateQr.value) return ''
+  return privateQr.value.gs1_digital_link || `${props.privateUrlBase}/${privateQr.value.token}`
+})
 
 // ── Vietmap picker ────────────────────────────────────────
 const place = ref({

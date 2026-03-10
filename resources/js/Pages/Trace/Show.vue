@@ -1,88 +1,82 @@
 <script setup>
+import { computed, ref } from 'vue'
 import { Head } from '@inertiajs/vue3'
-import { ref, computed } from 'vue'
-import GuestLayout from '@/Layouts/GuestLayout.vue'
-defineOptions({ layout: GuestLayout })
 
+// ── Props từ controller ───────────────────────────────────────────
 const props = defineProps({
-  mode:       { type: String, default: 'public' },
-  batch:      { type: Object, default: () => ({}) },
-  events:     { type: Array,  default: () => [] },
-  place_name: { type: String, default: null },
-  expires_at: { type: String, default: null },
+  mode:       String,   // 'public' | 'private'
+  batch:      Object,
+  events:     Array,
+  place_name: String,
+  expires_at: String,
 })
 
-const open = ref(null)
-const toggle = (id) => { open.value = open.value === id ? null : id }
+// ── Certificate lightbox ──────────────────────────────────────────
+const lightboxUrl = ref(null)
 
-// ── OG / SEO meta ─────────────────────────────────────────
-const pageTitle = computed(() => {
-  const name = props.batch?.product?.name ?? props.batch?.product_name ?? 'Sản phẩm'
-  return `${name} — Truy xuất nguồn gốc`
-})
-
-const pageDesc = computed(() => {
-  const ent  = props.batch?.enterprise?.name ?? ''
-  const code = props.batch?.code ?? ''
-  const n    = props.events?.length ?? 0
-  return `Lô ${code}${ent ? ' — ' + ent : ''}. ${n} sự kiện truy xuất đã được xác nhận trên IPFS theo TCVN 12850:2019.`
-})
-
+// ── SEO meta ─────────────────────────────────────────────────────
+const pageTitle = computed(() =>
+  props.batch?.product?.name
+    ? `${props.batch.product.name} — Truy xuất nguồn gốc`
+    : 'Truy xuất nguồn gốc'
+)
+const pageDesc = computed(() =>
+  `Thông tin truy xuất nguồn gốc lô ${props.batch?.code ?? ''} — ${props.batch?.enterprise?.name ?? ''}`
+)
 const ogImage = computed(() => {
-  const img = props.batch?.product?.image_path
-  if (!img) return null
-  return img.startsWith('http') ? img : `/storage/${img}`
+  const p = props.batch?.product?.image_path
+  if (!p) return null
+  return p.startsWith('http') ? p : `/storage/${p}`
 })
 
-// ── Label CTE code ─────────────────────────────────────────
-const CTE_LABELS = {
-  harvest:           '🌾 Thu hoạch',
-  processing:        '🏭 Chế biến',
-  packaging:         '📦 Đóng gói',
-  warehousing:       '🏬 Lưu kho',
-  transportation:    '🚚 Vận chuyển',
-  distribution:      '📦 Phân phối',
-  retail:            '🏪 Bán lẻ',
-  transfer_received: '🔄 Nhận hàng',
-  inspection:        '🔍 Kiểm tra',
-  custom:            '📋 Sự kiện',
+// ── Helpers ───────────────────────────────────────────────────────
+const CTE_ICON = {
+  planting: '🌱', growing: '🌿', harvest: '🌾', harvesting: '🌾',
+  processing: '⚙️', packaging: '📦', transport: '🚚', shipping: '🚚',
+  quality_check: '🔬', inspection: '🔍', storage: '🏭', warehousing: '🏭',
+  distribution: '🏪', retail: '🛒', recall: '🚨', split: '✂️',
+  merge: '🔗', transfer: '🔄', transfer_sent: '📤', transfer_received: '📥', custom: '📋',
 }
-
-function cteLabel(code) {
-  return CTE_LABELS[code] ?? (code ? `📋 ${code}` : '📋 Sự kiện')
-}
-
-// ── Helpers ────────────────────────────────────────────────
-function kdeRows(kdeData) {
-  if (!kdeData || typeof kdeData !== 'object') return []
-  return Object.entries(kdeData)
-    .filter(([k, v]) => v !== null && v !== '' && typeof v !== 'object' && !k.endsWith('_lat') && !k.endsWith('_lng'))
-    .map(([k, v]) => ({ label: kdeLabel(k), value: String(v) }))
-}
-
+function cteIcon(code) { return CTE_ICON[code] ?? '📋' }
 function kdeLabel(key) {
-  const map = {
-    who_performer: 'Người thực hiện',
-    what_quantity: 'Số lượng',
-    what_unit: 'Đơn vị',
-    what_warehouse: 'Kho',
-    what_temp: 'Nhiệt độ (°C)',
-    what_humidity: 'Độ ẩm (%)',
-    where_address: 'Địa điểm',
-    why_note: 'Ghi chú',
-    invoice_no: 'Số hóa đơn',
-    from_enterprise: 'Từ DN',
-    to_enterprise: 'Đến DN',
-    action: 'Hành động',
-  }
-  return map[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
-
-// Số DN tham gia chuỗi
 const enterpriseCount = computed(() => {
   const codes = new Set(props.events.map(e => e.enterprise?.code).filter(Boolean))
   return codes.size
 })
+
+// ── Recall helpers ─────────────────────────────────────────────────
+const isRecalled = computed(() => props.batch?.status === 'recalled')
+const recallDetails = computed(() => props.batch?.recall_details ?? null)
+const isCascadeRecalled = computed(() => props.batch?.is_cascade_recalled === true)
+
+// Trích xuất mã lô cha từ reason của cascade recall
+const cascadeParentCode = computed(() => {
+  if (!isCascadeRecalled.value) return null
+  const reason = recallDetails.value?.reason ?? ''
+  const match = reason.match(/\[Cascade từ lô ([^\]]+)\]/)
+  return match ? match[1] : (props.batch?.parent_batch_code ?? null)
+})
+
+const cleanRecallReason = computed(() => {
+  const reason = recallDetails.value?.reason ?? ''
+  return reason.replace(/^\[Cascade từ lô [^\]]+\]\s*/, '')
+})
+
+function ipfsVerifyUrl(cid) { return `/verify/ipfs/${cid}` }
+function shortCid(cid) {
+  if (!cid) return ''
+  return cid.length > 16 ? cid.slice(0, 8) + '...' + cid.slice(-6) : cid
+}
+
+// ── Certificate helpers ────────────────────────────────────────────
+const activeCerts = computed(() =>
+  (props.batch?.certificates ?? []).filter(c => !c.is_expired)
+)
+const expiredCerts = computed(() =>
+  (props.batch?.certificates ?? []).filter(c => c.is_expired)
+)
 </script>
 
 <template>
@@ -98,199 +92,282 @@ const enterpriseCount = computed(() => {
     <meta v-if="ogImage" name="twitter:image" :content="ogImage" />
   </Head>
 
-  <div class="max-w-2xl mx-auto px-4 py-8 space-y-5">
-
-    <!-- Batch header -->
-    <div class="rounded-2xl border border-glass bg-white/5 p-5">
-
-      <!-- Recalled banner -->
-      <div v-if="batch?.status === 'recalled'"
-        class="mb-4 px-4 py-3 bg-red-500/15 border border-red-500/40 rounded-xl text-sm text-red-300 font-semibold">
-        ⚠️ Lô hàng này đã bị thu hồi. Vui lòng không sử dụng.
+  <!-- Certificate Lightbox -->
+  <Teleport to="body">
+    <div v-if="lightboxUrl"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      @click.self="lightboxUrl = null">
+      <div class="relative max-w-3xl w-full">
+        <button @click="lightboxUrl = null"
+          class="absolute -top-10 right-0 text-white/60 hover:text-white text-sm">
+          ✕ Đóng
+        </button>
+        <img :src="lightboxUrl" class="w-full rounded-xl shadow-2xl object-contain max-h-[80vh]" />
       </div>
+    </div>
+  </Teleport>
 
-      <!-- Private TTL -->
+  <div class="max-w-2xl mx-auto px-4 py-8 space-y-6">
+
+    <!-- ══════════════════════════════════════════════════════════════
+         RECALL BANNER
+    ══════════════════════════════════════════════════════════════════ -->
+    <div v-if="isRecalled"
+      class="rounded-2xl border border-red-500/50 bg-red-950/40 overflow-hidden shadow-2xl shadow-red-900/20" data-aos="zoom-in">
+      <div class="px-5 py-3 bg-red-600 flex items-center gap-2">
+        <span class="text-xl animate-bounce">🚨</span>
+        <div>
+          <div class="font-bold text-white text-sm tracking-wide">SẢN PHẨM BỊ THU HỒI</div>
+          <div class="text-red-100 text-[10px] uppercase font-bold opacity-80">Lệnh thu hồi khẩn cấp</div>
+        </div>
+      </div>
+      <div class="p-5 space-y-4">
+        <div v-if="isCascadeRecalled && cascadeParentCode"
+          class="px-4 py-3 bg-orange-950/60 border border-orange-500/40 rounded-xl text-sm text-orange-200">
+          ⚠️ <strong>Cảnh báo:</strong> Lô hàng này bị thu hồi do chứa thành phần từ
+          <span class="font-mono font-bold text-orange-300 underline decoration-dotted underline-offset-4">lô cha [{{ cascadeParentCode }}]</span>.
+        </div>
+        <div v-if="recallDetails">
+          <div class="text-[10px] text-red-400/70 uppercase tracking-widest mb-1 font-bold">Lý do thu hồi</div>
+          <div class="text-red-100 font-bold text-sm leading-relaxed bg-red-500/10 p-3 rounded-xl border border-red-500/20">
+            {{ cleanRecallReason }}
+          </div>
+        </div>
+        <div v-if="recallDetails?.notice_content">
+          <div class="text-[10px] text-red-400/70 uppercase tracking-widest mb-1 font-bold">Hướng dẫn xử lý</div>
+          <div class="text-white/80 text-sm leading-relaxed whitespace-pre-line px-3 py-2">
+            {{ recallDetails.notice_content }}
+          </div>
+        </div>
+        <div v-if="recallDetails?.ipfs_cid"
+          class="px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl flex items-center justify-between">
+          <div>
+            <div class="text-[9px] text-white/30 uppercase tracking-widest mb-0.5">Proof trên IPFS</div>
+            <code class="text-[10px] font-mono text-purple-300">{{ shortCid(recallDetails.ipfs_cid) }}</code>
+          </div>
+          <a :href="ipfsVerifyUrl(recallDetails.ipfs_cid)" target="_blank"
+            class="text-[10px] font-bold text-brand-400 bg-brand-500/10 px-2 py-1 rounded-lg border border-brand-500/20">
+            XÁC MINH →
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         BATCH HEADER
+    ══════════════════════════════════════════════════════════════════ -->
+    <div class="rounded-3xl border border-glass bg-white/5 p-6 shadow-xl relative overflow-hidden" data-aos="fade-up">
+      <div class="absolute -right-8 -top-8 w-32 h-32 bg-brand-500/10 blur-3xl rounded-full"></div>
+      
       <div v-if="mode === 'private' && expires_at"
-        class="mb-4 px-4 py-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300">
-        QR riêng tư — hết hiệu lực lúc {{ new Date(expires_at).toLocaleString('vi-VN') }}
+        class="mb-5 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 text-center font-bold">
+        🛡️ QR bảo mật — Hết hạn sau {{ new Date(expires_at).toLocaleString('vi-VN') }}
       </div>
 
-      <!-- Product image + name -->
-      <div class="flex gap-4 items-start">
+      <div class="flex gap-5 items-start relative z-10">
         <img v-if="batch?.product?.image_path"
           :src="batch.product.image_path.startsWith('http') ? batch.product.image_path : `/storage/${batch.product.image_path}`"
-          class="w-16 h-16 rounded-xl object-cover border border-glass shrink-0" />
+          class="w-20 h-20 rounded-2xl object-cover border-2 border-white/10 shadow-2xl shrink-0" />
         <div class="flex-1 min-w-0">
-          <div class="text-[10px] text-white/30 uppercase tracking-wider">
-            {{ batch?.product?.category?.name_vi ?? 'Sản phẩm' }}
+          <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-brand-500/10 border border-brand-500/20 text-[10px] font-bold text-brand-400 uppercase mb-1.5">
+            {{ batch?.product?.category?.icon }} {{ batch?.product?.category?.name_vi ?? 'Sản phẩm' }}
           </div>
-          <h1 class="text-lg font-bold text-white leading-tight mt-0.5">
+          <h1 class="text-xl font-black text-white leading-tight">
             {{ batch?.product?.name ?? batch?.product_name }}
           </h1>
-          <div v-if="batch?.enterprise?.name" class="text-sm text-white/50 mt-0.5">
-            {{ batch.enterprise.name }}
+          <div class="text-sm text-white/40 mt-1 font-medium italic">
+            Cung cấp bởi: <span class="text-white/70 non-italic">{{ batch?.enterprise?.name }}</span>
           </div>
         </div>
       </div>
 
-      <!-- Detail grid -->
-      <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+      <div class="mt-6 grid grid-cols-2 gap-4 relative z-10 bg-black/20 p-4 rounded-2xl border border-white/5">
         <div v-if="batch?.code">
-          <div class="text-[10px] text-white/30 uppercase tracking-wider">Mã lô</div>
-          <div class="font-mono text-white/80">{{ batch.code }}</div>
+          <div class="text-[9px] text-white/25 uppercase font-bold tracking-widest">Mã định danh lô</div>
+          <div class="font-mono text-brand-300 text-sm font-bold">{{ batch.code }}</div>
         </div>
         <div v-if="batch?.product?.gtin">
-          <div class="text-[10px] text-white/30 uppercase tracking-wider">GTIN</div>
-          <div class="font-mono text-white/80">{{ batch.product.gtin }}</div>
+          <div class="text-[9px] text-white/25 uppercase font-bold tracking-widest">Mã GS1 (GTIN)</div>
+          <div class="font-mono text-white/80 text-sm font-bold">{{ batch.product.gtin }}</div>
         </div>
         <div v-if="batch?.production_date">
-          <div class="text-[10px] text-white/30 uppercase tracking-wider">Ngày sản xuất</div>
-          <div class="text-white/80">{{ batch.production_date }}</div>
+          <div class="text-[9px] text-white/25 uppercase font-bold tracking-widest">Ngày sản xuất</div>
+          <div class="text-white/80 text-sm font-semibold">{{ batch.production_date }}</div>
         </div>
         <div v-if="batch?.expiry_date">
-          <div class="text-[10px] text-white/30 uppercase tracking-wider">Hạn sử dụng</div>
-          <div class="text-white/80">{{ batch.expiry_date }}</div>
-        </div>
-        <div v-if="batch?.quantity">
-          <div class="text-[10px] text-white/30 uppercase tracking-wider">Số lượng</div>
-          <div class="text-white/80">{{ batch.quantity }} {{ batch.unit }}</div>
-        </div>
-        <div v-if="place_name">
-          <div class="text-[10px] text-white/30 uppercase tracking-wider">Điểm phát hành</div>
-          <div class="text-white/80">{{ place_name }}</div>
+          <div class="text-[9px] text-white/25 uppercase font-bold tracking-widest">Hạn sử dụng</div>
+          <div class="text-white/80 text-sm font-semibold">{{ batch.expiry_date }}</div>
         </div>
       </div>
     </div>
 
-    <!-- Events timeline -->
-    <div class="rounded-2xl border border-glass bg-white/5 overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
-        <div>
-          <div class="font-semibold text-white/80 text-sm">Chuỗi sự kiện truy xuất</div>
-          <div class="text-xs text-white/40 mt-0.5">
-            {{ events.length }} sự kiện
-            <span v-if="enterpriseCount > 1"> · {{ enterpriseCount }} doanh nghiệp tham gia</span>
-            · TCVN 12850:2019
+    <!-- ══════════════════════════════════════════════════════════════
+         CHỨNG CHỈ (Certificates)
+    ══════════════════════════════════════════════════════════════════ -->
+    <div v-if="batch?.certificates?.length" class="space-y-3" data-aos="fade-up">
+      <h3 class="text-xs font-bold text-white/40 uppercase tracking-widest px-2">Chứng nhận chất lượng</h3>
+      <div class="grid grid-cols-1 gap-3">
+        <div v-for="cert in activeCerts" :key="cert.id"
+          class="flex items-center gap-4 p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 hover:border-emerald-500/40 transition-all group">
+          <div class="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 shrink-0 shadow-inner">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+              <path fill-rule="evenodd" d="M8.603 3.799A4.49 4.49 0 0 1 12 2.25c1.357 0 2.573.6 3.397 1.549a4.49 4.49 0 0 1 3.498 1.307 4.491 4.491 0 0 1 1.307 3.497A4.49 4.49 0 0 1 21.75 12a4.49 4.49 0 0 1-1.549 3.397 4.491 4.491 0 0 1-1.307 3.497 4.491 4.491 0 0 1-3.497 1.307A4.49 4.49 0 0 1 12 21.75a4.49 4.49 0 0 1-3.397-1.549a4.49 4.49 0 0 1-3.498-1.307 4.491 4.491 0 0 1-1.307-3.497A4.49 4.49 0 0 1 2.25 12a4.49 4.49 0 0 1 1.549-3.397 4.492 4.492 0 0 1 1.307-3.497 4.492 4.492 0 0 1 3.497-1.307Zm7.007 6.387a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z" clip-rule="evenodd" />
+            </svg>
           </div>
-        </div>
-        <!-- Tổng số DN badge -->
-        <div v-if="enterpriseCount > 1"
-          class="text-[10px] px-2 py-1 rounded-full border border-brand-400/30 text-brand-400 bg-brand-400/5 shrink-0">
-          {{ enterpriseCount }} DN
-        </div>
-      </div>
-
-      <div v-if="events.length === 0" class="px-5 py-8 text-center text-sm text-white/30">
-        Chưa có sự kiện được công bố.
-      </div>
-
-      <div v-for="(ev, idx) in events" :key="ev.id" class="border-b border-white/5 last:border-0">
-
-        <!-- DN separator: hiển thị tên DN khi đổi sang DN mới -->
-        <div
-          v-if="ev.enterprise?.name && (idx === 0 || ev.enterprise?.code !== events[idx-1]?.enterprise?.code)"
-          class="px-5 pt-3 pb-1 flex items-center gap-2">
-          <div class="h-px flex-1 bg-white/10"></div>
-          <span class="text-[10px] text-white/30 font-medium shrink-0">
-            {{ ev.enterprise.name }}
-          </span>
-          <div class="h-px flex-1 bg-white/10"></div>
-        </div>
-
-        <!-- Row header -->
-        <button
-          class="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition"
-          @click="toggle(ev.id)"
-        >
-          <!-- Timeline dot -->
-          <div class="relative shrink-0 flex flex-col items-center">
-            <div class="w-2.5 h-2.5 rounded-full"
-              :class="ev.tx_hash ? 'bg-blue-400' : ev.ipfs_cid ? 'bg-green-400' : 'bg-white/20'">
-            </div>
-          </div>
-
           <div class="flex-1 min-w-0">
-            <div class="font-semibold text-white/80 text-sm">{{ cteLabel(ev.cte_code) }}</div>
-            <div class="flex gap-3 text-xs text-white/40 mt-0.5 flex-wrap">
-              <span v-if="ev.event_time">{{ ev.event_time }}</span>
-              <span v-if="ev.who_name">{{ ev.who_name }}</span>
-              <span v-if="ev.where_address" class="truncate max-w-40">📍 {{ ev.where_address }}</span>
-            </div>
+            <div class="font-extrabold text-white text-sm">{{ cert.name }}</div>
+            <div class="text-[10px] text-emerald-400/70 font-bold uppercase tracking-tighter">{{ cert.organization }}</div>
           </div>
-
-          <!-- Badges -->
-          <div class="flex gap-1 shrink-0">
-            <span v-if="ev.tx_hash"
-              class="text-[10px] text-blue-400 border border-blue-400/30 bg-blue-400/5 px-2 py-0.5 rounded">
-              BC
-            </span>
-            <span v-if="ev.ipfs_cid"
-              class="text-[10px] text-green-400 border border-green-400/30 bg-green-400/5 px-2 py-0.5 rounded">
-              IPFS
-            </span>
-          </div>
-
-          <span class="text-white/30 text-xs shrink-0">{{ open === ev.id ? '▲' : '▼' }}</span>
-        </button>
-
-        <!-- Detail panel -->
-        <div v-if="open === ev.id" class="px-5 pb-5 space-y-3">
-
-          <!-- KDE rows -->
-          <div v-if="kdeRows(ev.kde_data).length" class="bg-white/5 rounded-xl p-3 space-y-2">
-            <div v-for="row in kdeRows(ev.kde_data)" :key="row.label" class="flex gap-3 text-sm">
-              <span class="text-white/40 w-36 shrink-0 text-xs leading-5">{{ row.label }}</span>
-              <span class="text-white/80 flex-1">{{ row.value }}</span>
-            </div>
-          </div>
-
-          <!-- GPS -->
-          <a v-if="ev.where_lat && ev.where_lng"
-            :href="`https://maps.google.com/?q=${ev.where_lat},${ev.where_lng}`"
-            target="_blank"
-            class="block text-xs text-brand-400 underline">
-            <i class="fi fi-ts-land-layer-location"></i> Xem vị trí trên bản đồ
-          </a>
-
-          <!-- Note -->
-          <p v-if="ev.note" class="text-xs text-white/50 bg-white/5 rounded-xl px-3 py-2">
-            {{ ev.note }}
-          </p>
-
-          <!-- Attachments -->
-          <div v-if="ev.attachments?.length" class="grid grid-cols-1 gap-2">
-            <a v-for="att in ev.attachments" :key="att.cid"
-              :href="att.url" target="_blank"
-              class="flex items-center gap-2 px-3 py-2 bg-white/5 border border-glass rounded-xl text-xs text-white/60 hover:bg-white/10 transition">
-              <span>📎</span>
-              <span class="truncate">{{ att.name }}</span>
-            </a>
-          </div>
-
-          <!-- IPFS block -->
-          <div v-if="ev.ipfs_cid"
-            class="rounded-xl border border-green-500/20 bg-green-500/5 p-3 space-y-1">
-            <p class="text-xs text-green-400 font-semibold">✅ Dữ liệu đã ghi bất biến trên IPFS</p>
-            <p class="font-mono text-[10px] text-white/30 break-all">{{ ev.ipfs_cid }}</p>
-            <div class="flex gap-3 pt-1 flex-wrap">
-              <a v-if="ev.ipfs_url" :href="ev.ipfs_url" target="_blank"
-                class="text-xs text-green-400/80 underline">Xem trên IPFS</a>
-              <a v-if="ev.content_hash" :href="`/verify/ipfs/${ev.ipfs_cid}?hash=${ev.content_hash}`"
-                target="_blank" class="text-xs text-brand-400/80 underline">Xác minh toàn vẹn</a>
-            </div>
-          </div>
-
-          <!-- Blockchain block -->
-          <div v-if="ev.tx_hash"
-            class="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 space-y-1">
-            <p class="text-xs text-blue-400 font-semibold">🔗 Đã ghi lên Hyperledger Fabric</p>
-            <p class="font-mono text-[10px] text-white/40 break-all">{{ ev.tx_hash }}</p>
-          </div>
-
+          <button v-if="cert.image_url" @click="lightboxUrl = cert.image_url"
+            class="text-[10px] font-bold text-white/40 border border-white/10 px-3 py-1.5 rounded-xl hover:bg-white/5 hover:text-white transition-all">
+            XEM CHI TIẾT
+          </button>
         </div>
       </div>
     </div>
 
-    <p class="text-center text-xs text-white/20 pb-4">AGU Traceability · TCVN 12850:2019</p>
+    <!-- ══════════════════════════════════════════════════════════════
+         VERTICAL JOURNEY TIMELINE
+    ══════════════════════════════════════════════════════════════ -->
+    <div class="space-y-4">
+      <div class="flex items-center justify-between px-2">
+        <h2 class="text-xs font-extrabold text-white/40 uppercase tracking-widest flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span>
+          Hành trình chuỗi cung ứng
+        </h2>
+        <div class="text-[10px] text-white/20 font-bold uppercase tracking-tighter">
+          {{ events.length }} Events · {{ enterpriseCount }} Units
+        </div>
+      </div>
+
+      <div v-if="events.length === 0" class="rounded-3xl border-2 border-dashed border-white/5 p-12 text-center text-white/10">
+        <div class="text-5xl mb-4 opacity-10">🌍</div>
+        <p class="text-sm font-bold uppercase tracking-widest">Dữ liệu đang được cập nhật</p>
+      </div>
+
+      <div v-else class="relative pl-2 pb-8" v-auto-animate>
+        <!-- The Journey Line -->
+        <div class="absolute left-7 top-4 bottom-0 w-0.5 bg-gradient-to-b from-brand-500/60 via-white/10 to-transparent"></div>
+
+        <template v-for="(event, idx) in events" :key="event.id">
+          
+          <!-- Enterprise Gateway: Show when moving to a new unit -->
+          <div v-if="idx === 0 || event.enterprise?.code !== events[idx-1]?.enterprise?.code"
+            class="relative z-10 pl-14 py-8 first:pt-2" data-aos="fade-right">
+            <div class="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-cosmic-950 border-2 border-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
+              <div class="w-1.5 h-1.5 rounded-full bg-brand-400"></div>
+            </div>
+            <div class="inline-flex flex-col">
+              <span class="text-[9px] font-black text-brand-500 uppercase tracking-widest leading-none mb-1">Cơ sở vận hành:</span>
+              <span class="text-sm font-black text-white bg-white/5 border border-white/10 px-3 py-1 rounded-xl shadow-xl">
+                🏛️ {{ event.enterprise?.name }}
+              </span>
+            </div>
+          </div>
+
+          <!-- The Event Milestone -->
+          <div class="relative pl-14 pb-12 last:pb-4 group" data-aos="fade-up">
+            
+            <!-- Floating Icon Circle -->
+            <div class="absolute left-4 top-0 z-20 w-7 h-7 rounded-full bg-cosmic-900 border-2 border-white/10 group-hover:border-brand-500 flex items-center justify-center text-sm shadow-2xl transition-all duration-500 scale-100 group-hover:scale-110">
+              {{ cteIcon(event.cte_code) }}
+            </div>
+
+            <!-- Milestone Card -->
+            <div class="bg-white/5 border border-glass rounded-3xl p-5 hover:bg-white/8 transition-all duration-500 relative overflow-hidden shadow-lg hover:shadow-brand-500/5">
+              
+              <!-- Giant Background Watermark -->
+              <div class="absolute -right-6 -top-6 text-6xl opacity-[0.03] grayscale pointer-events-none group-hover:opacity-[0.07] transition-opacity duration-700 rotate-12">
+                {{ cteIcon(event.cte_code) }}
+              </div>
+
+              <!-- Header Area -->
+              <div class="flex justify-between items-start gap-4 relative z-10">
+                <div>
+                  <h3 class="text-base font-black text-white/90 group-hover:text-brand-300 transition-colors">
+                    {{ event.cte_code?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? 'Sự kiện' }}
+                  </h3>
+                  <div class="inline-flex items-center gap-1.5 text-[10px] text-white/30 font-bold mt-1 bg-black/20 px-2 py-0.5 rounded-lg border border-white/5">
+                    📅 {{ event.event_time }}
+                  </div>
+                </div>
+                <div v-if="event.status === 'published'" class="shrink-0 pt-1">
+                  <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[9px] font-black text-purple-300 uppercase tracking-widest shadow-inner">
+                    <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
+                    Verified
+                  </div>
+                </div>
+              </div>
+
+              <!-- 5W Data Matrix -->
+              <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
+                <div v-if="event.who_name" class="p-3 rounded-2xl bg-white/3 border border-white/5">
+                  <div class="text-[8px] text-white/20 uppercase font-black tracking-tighter mb-1">Thực hiện bởi</div>
+                  <div class="text-[11px] text-white/80 font-bold">{{ event.who_name }}</div>
+                </div>
+                <div v-if="event.where_address" class="p-3 rounded-2xl bg-white/3 border border-white/5">
+                  <div class="text-[8px] text-white/20 uppercase font-black tracking-tighter mb-1">Vị trí địa lý</div>
+                  <div class="text-[11px] text-white/80 font-bold truncate">{{ event.where_address }}</div>
+                </div>
+                <div v-if="event.why_reason" class="sm:col-span-2 p-3 rounded-2xl bg-brand-500/5 border border-brand-500/10 shadow-inner">
+                  <div class="text-[8px] text-brand-400/50 uppercase font-black tracking-tighter mb-1">Mục đích / Tiêu chuẩn</div>
+                  <div class="text-[11px] text-brand-200 font-medium italic">"{{ event.why_reason }}"</div>
+                </div>
+              </div>
+
+              <!-- Detail Expander -->
+              <details v-if="event.kde_data && Object.keys(event.kde_data).length" class="mt-4 border-t border-white/5 pt-4">
+                <summary class="text-[9px] font-black text-white/25 cursor-pointer hover:text-white/50 select-none flex items-center gap-2 uppercase tracking-widest">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3 text-brand-500">
+                    <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                  </svg>
+                  Thông số chi tiết (GS1 KDE)
+                </summary>
+                <div class="mt-3 grid grid-cols-2 gap-2 bg-black/40 rounded-2xl p-4 shadow-inner border border-white/5">
+                  <div v-for="(val, key) in event.kde_data" :key="key" class="flex flex-col border-b border-white/5 last:border-0 pb-1 mb-1">
+                    <span class="text-[8px] text-white/20 uppercase font-black">{{ kdeLabel(key) }}</span>
+                    <span class="text-[10px] text-white/70 font-medium truncate" :title="val">{{ val ?? '—' }}</span>
+                  </div>
+                </div>
+              </details>
+
+              <!-- Footer Proofs -->
+              <div class="mt-5 flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-white/5">
+                <div class="flex flex-wrap gap-2">
+                  <a v-for="att in event.attachments" :key="att.cid"
+                    :href="att.url" target="_blank"
+                    class="inline-flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:bg-brand-500/10 hover:border-brand-500/20 hover:text-brand-300 transition-all shadow-sm">
+                    📎 {{ att.name }}
+                  </a>
+                </div>
+                
+                <div v-if="event.ipfs_cid" class="flex items-center gap-3">
+                  <div class="flex flex-col items-end">
+                    <span class="text-[8px] text-white/20 uppercase font-black leading-none">IPFS Node</span>
+                    <code class="text-[9px] font-mono text-purple-400/60 font-bold">#{{ shortCid(event.ipfs_cid) }}</code>
+                  </div>
+                  <a :href="`/verify/ipfs/${event.ipfs_cid}?hash=${event.content_hash}`"
+                    target="_blank"
+                    class="text-[10px] font-black text-brand-950 bg-brand-500 px-3 py-1.5 rounded-xl shadow-lg shadow-brand-500/30 hover:bg-brand-400 active:scale-95 transition-all uppercase tracking-tighter">
+                    Xác thực
+                  </a>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Final Footer -->
+    <div class="text-center pt-8 border-t border-white/5">
+      <div class="text-[10px] font-black text-white/10 uppercase tracking-[0.3em] mb-2">TCVN 12850:2019 COMPLIANT</div>
+      <p class="text-[11px] text-white/20 font-bold italic opacity-50">"Minh bạch hóa hành trình — Bảo vệ người tiêu dùng Việt"</p>
+    </div>
   </div>
 </template>
+
+<style scoped>
+/* Custom animations if needed */
+</style>

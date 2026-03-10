@@ -19,9 +19,9 @@ const onEnter = (e) => { if (e.key === 'Enter') go() }
   <Head title="Trang chủ — AGU Traceability" />
 
   <!-- Hero -->
-  <section>
+  <section data-aos="fade-up">
     <div class="max-w-7xl mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-      <div>
+      <div data-aos="fade-right" data-aos-delay="200">
         <div class="text-white/50 text-xs font-bold tracking-widest uppercase mb-3">Hệ thống truy xuất nguồn gốc</div>
         <h1 class="text-4xl lg:text-5xl font-extrabold leading-tight text-white/90">
           Xác thực <span class="text-brand-400">nguồn gốc</span><br>sản phẩm
@@ -60,9 +60,9 @@ const onEnter = (e) => { if (e.key === 'Enter') go() }
   </section>
 
   <!-- Steps -->
-  <section class="border-y border-glass bg-black/20">
+  <section class="border-y border-glass bg-black/20 overflow-hidden">
     <div class="max-w-7xl mx-auto px-6 py-12">
-      <div class="text-xs text-white/40 uppercase tracking-widest text-center mb-8">Quy trình</div>
+      <div class="text-xs text-white/40 uppercase tracking-widest text-center mb-8" data-aos="fade-up">Quy trình</div>
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
         <div v-for="(step, i) in [
           { num: '01', title: 'Đăng ký doanh nghiệp', desc: 'Khai báo thông tin, upload giấy phép kinh doanh.' },
@@ -70,7 +70,8 @@ const onEnter = (e) => { if (e.key === 'Enter') go() }
           { num: '03', title: 'Ghi nhận sự kiện', desc: 'Ghi dữ liệu 5W theo từng bước chuỗi cung ứng.' },
           { num: '04', title: 'Publish & In QR', desc: 'Dữ liệu lên IPFS bất biến, in QR cho người tiêu dùng quét.' },
         ]" :key="i"
-          class="bg-white/5 border border-glass rounded-2xl p-5">
+          class="bg-white/5 border border-glass rounded-2xl p-5 hover:-translate-y-1 hover:bg-white/10 transition-all duration-300"
+          data-aos="fade-up" :data-aos-delay="i * 150">
           <div class="text-2xl font-extrabold text-brand-500/50">{{ step.num }}</div>
           <div class="font-semibold text-white/80 mt-3 text-sm">{{ step.title }}</div>
           <div class="text-xs text-white/40 mt-2 leading-relaxed">{{ step.desc }}</div>
@@ -92,13 +93,14 @@ const onEnter = (e) => { if (e.key === 'Enter') go() }
 
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <a
-          v-for="cat in categories"
+          v-for="(cat, i) in categories"
           :key="cat.code"
           href="/san-pham"
-          class="bg-white/5 border border-glass rounded-2xl p-4 text-center hover:bg-white/8 hover:border-brand-500/30 transition block"
+          class="bg-white/5 border border-glass rounded-2xl p-4 text-center hover:bg-white/8 hover:border-brand-500/30 hover:-translate-y-1 transition-all duration-300 block"
+          data-aos="zoom-in" :data-aos-delay="i * 100"
         >
           <div class="text-3xl">{{ cat.icon }}</div>
-          <div class="text-2xl text-white/70 font-semibold mt-2 leading-snug">{{ cat.name_vi }}</div>
+          <div class="text-sm text-white/70 font-semibold mt-2 leading-snug">{{ cat.name_vi }}</div>
           <div class="text-[10px] text-white/30 mt-1">{{ cat.tcvn_ref }}</div>
         </a>
       </div>

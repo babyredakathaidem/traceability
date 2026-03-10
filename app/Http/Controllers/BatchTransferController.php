@@ -184,7 +184,7 @@ class BatchTransferController extends Controller
             $batch->update([
                 'enterprise_id' => $tenantId,
                 'batch_type'    => 'received',
-                'status'        => 'received',
+                'status'        => 'active', // Đổi từ received thành active
             ]);
 
             // ── Ghi BatchLineage cho transfer ─────────────────

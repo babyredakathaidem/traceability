@@ -11,7 +11,7 @@ class BlockchainService
 
     public function __construct()
     {
-        $this->gatewayUrl = config('services.fabric.gateway_url', 'http://172.22.82.178:3001');
+        $this->gatewayUrl = config('services.fabric.gateway_url');
     }
 
     /**

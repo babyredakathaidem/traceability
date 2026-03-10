@@ -290,7 +290,7 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
   <div class="space-y-6">
 
     <!-- Header -->
-    <div class="rounded-2xl border border-glass bg-black/40 p-6 flex flex-wrap items-start justify-between gap-4">
+    <div class="rounded-2xl border border-glass bg-black/40 p-6 flex flex-wrap items-start justify-between gap-4" data-aos="fade-right">
       <div>
         <div class="text-brand-300 text-sm font-semibold">Truy xuất nguồn gốc</div>
         <h1 class="text-2xl font-bold mt-1 text-white/90">Ghi nhận sự kiện</h1>
@@ -299,7 +299,7 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
     </div>
 
     <!-- Chọn lô -->
-    <div class="rounded-2xl border border-glass bg-black/20 p-5 space-y-3">
+    <div class="rounded-2xl border border-glass bg-black/20 p-5 space-y-3" data-aos="fade-up" data-aos-delay="100">
       <label class="text-xs font-medium text-white/40 uppercase tracking-widest">Lô hàng đang ghi sự kiện</label>
       <select v-model.number="batchId" :class="inputCls">
         <option :value="null">— Chọn lô hàng —</option>
@@ -307,7 +307,7 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
           {{ b.code }} — {{ b.product_name }}{{ batchTypeBadge(b) ? ' ' + batchTypeBadge(b) : '' }} ({{ b.status }})
         </option>
       </select>
-      <div v-if="selectedBatch" class="flex flex-wrap gap-2 text-xs">
+      <div v-if="selectedBatch" class="flex flex-wrap gap-2 text-xs" v-auto-animate>
         <span v-for="cert in (selectedBatch.certifications ?? [])" :key="cert"
           class="px-2 py-0.5 rounded-full border border-brand-500/30 bg-brand-500/10 text-brand-300">{{ cert }}</span>
         <span v-if="selectedBatch.current_quantity != null" class="text-white/30">
@@ -330,7 +330,7 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
             <span class="text-xs text-white/40">{{ completeness }}%</span>
           </div>
         </div>
-        <div class="divide-y divide-white/5">
+        <div class="divide-y divide-white/5" v-auto-animate>
           <button v-for="tpl in cteTemplates" :key="tpl.code" @click="selectCte(tpl)"
             class="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-white/5 transition"
             :class="selectedCte?.code === tpl.code ? 'bg-brand-500/10 border-l-2 border-brand-500' : ''">
@@ -467,8 +467,9 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
             <div class="text-sm">Chưa có sự kiện nào.</div>
           </div>
 
-          <div v-else class="divide-y divide-white/5">
-            <div v-for="ev in events.data" :key="ev.id" class="p-5 space-y-3">
+          <div v-else class="divide-y divide-white/5" v-auto-animate>
+            <div v-for="(ev, i) in events.data" :key="ev.id" class="p-5 space-y-3"
+              data-aos="fade-up" :data-aos-delay="300 + (i * 30)">
               <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <div class="flex items-center gap-2 flex-wrap">

@@ -121,7 +121,7 @@ const nextPage = () => { if (paginator.value?.next_page_url) router.visit(pagina
   <div class="space-y-6">
 
     <!-- Header -->
-    <div class="rounded-2xl border border-glass bg-black/40 p-6 flex items-center justify-between gap-4">
+    <div class="rounded-2xl border border-glass bg-black/40 p-6 flex items-center justify-between gap-4" data-aos="fade-right">
       <div>
         <div class="text-brand-300 text-sm font-semibold">Doanh nghiệp</div>
         <div class="text-2xl font-bold mt-1 text-white/90">Quản lý sản phẩm</div>
@@ -134,7 +134,7 @@ const nextPage = () => { if (paginator.value?.next_page_url) router.visit(pagina
     </div>
 
     <!-- Search -->
-    <UiCard>
+    <UiCard data-aos="fade-up" data-aos-delay="100">
       <div class="flex gap-3">
         <input
           v-model="q" @keyup.enter="search"
@@ -146,31 +146,33 @@ const nextPage = () => { if (paginator.value?.next_page_url) router.visit(pagina
     </UiCard>
 
     <!-- Table -->
-    <UiCard title="Danh sách sản phẩm" :subtitle="`Tổng: ${paginator?.total ?? 0} sản phẩm`">
+    <UiCard title="Danh sách sản phẩm" :subtitle="`Tổng: ${paginator?.total ?? 0} sản phẩm`" data-aos="fade-up" data-aos-delay="200">
       <UiTable :headers="headers">
-        <tr v-for="p in list" :key="p.id" class="hover:bg-white/5 transition">
-          <td class="px-4 py-3">
-            <div class="font-extrabold text-white/90">{{ p.name }}</div>
-            <div v-if="p.description" class="text-xs text-white/40 truncate max-w-xs">{{ p.description }}</div>
-          </td>
-          <td class="px-4 py-3 text-white/70 text-sm">
-            {{ p.category?.icon }} {{ p.category?.name_vi ?? '—' }}
-          </td>
-          <td class="px-4 py-3 text-white/70 text-sm font-mono">{{ p.gtin || '—' }}</td>
-          <td class="px-4 py-3 text-white/70 text-sm">{{ p.unit || '—' }}</td>
-          <td class="px-4 py-3 text-sm" :class="statusCls(p.status)">{{ statusLabel(p.status) }}</td>
-          <td class="px-4 py-3 text-white/60 text-sm text-center">{{ p.batches_count }}</td>
-          <td class="px-4 py-3">
-            <div class="flex gap-2">
-              <Link :href="route('products.show', p.id)">
-                <UiButton size="sm" variant="outline">Xem</UiButton>
-              </Link>
-              <UiButton size="sm" variant="outline" @click="openEdit(p)">Sửa</UiButton>
-              <UiButton size="sm" variant="danger"  @click="removeProduct(p)">Xóa</UiButton>
-            </div>
-          </td>
-        </tr>
-        <tr v-if="!list.length">
+        <tr v-for="(p, i) in list" :key="p.id" class="hover:bg-white/5 transition"
+          data-aos="fade-up" :data-aos-delay="200 + (i * 30)">
+            <td class="px-4 py-3">
+              <div class="font-extrabold text-white/90">{{ p.name }}</div>
+              <div v-if="p.description" class="text-xs text-white/40 truncate max-w-xs">{{ p.description }}</div>
+            </td>
+            <td class="px-4 py-3 text-white/70 text-sm">
+              {{ p.category?.icon }} {{ p.category?.name_vi ?? '—' }}
+            </td>
+            <td class="px-4 py-3 text-white/70 text-sm font-mono">{{ p.gtin || '—' }}</td>
+            <td class="px-4 py-3 text-white/70 text-sm">{{ p.unit || '—' }}</td>
+            <td class="px-4 py-3 text-sm" :class="statusCls(p.status)">{{ statusLabel(p.status) }}</td>
+            <td class="px-4 py-3 text-white/60 text-sm text-center">{{ p.batches_count }}</td>
+            <td class="px-4 py-3">
+              <div class="flex gap-2">
+                <Link :href="route('products.show', p.id)">
+                  <UiButton size="sm" variant="outline">Xem</UiButton>
+                </Link>
+                <UiButton size="sm" variant="outline" @click="openEdit(p)">Sửa</UiButton>
+                <UiButton size="sm" variant="danger"  @click="removeProduct(p)">Xóa</UiButton>
+              </div>
+              </td>
+              </tr>
+              <tr v-if="!list.length">
+
           <td colspan="7" class="p-8 text-center text-white/40">Chưa có sản phẩm nào.</td>
         </tr>
       </UiTable>
