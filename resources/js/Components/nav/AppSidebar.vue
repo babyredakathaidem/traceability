@@ -2,6 +2,7 @@
 import { computed, ref, markRaw } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 import { 
+  ChartBarIcon, 
   Squares2X2Icon, 
   CubeIcon, 
   ArchiveBoxIcon, 
@@ -41,13 +42,37 @@ function canAll(required = []) {
 }
 
 const sections = computed(() => {
-  if (isSuperAdmin.value) return [{
+if (isSuperAdmin.value) return [{
     title: 'Hệ thống',
     items: [
-      { label: 'Duyệt doanh nghiệp', href: '/sys/enterprises', icon: ShieldCheckIcon },
-      { label: 'Cấu hình hệ thống',  href: '/sys/settings',    icon: WrenchScrewdriverIcon },
+        { 
+            label: 'Duyệt doanh nghiệp', 
+            href: '/sys/enterprises', 
+            icon: ShieldCheckIcon 
+        },
+        { 
+            label: 'Cấu hình hệ thống',  
+            href: '/sys/settings',    
+            icon: WrenchScrewdriverIcon 
+        },
+        // ── Thêm các thẻ mới vào đây ──────────────────
+        { 
+            label: 'Thống kê tổng quát', 
+            href: '/sys/stats',       
+            icon: ChartBarIcon          // import thêm từ heroicons
+        },
+        { 
+            label: 'Cấu hình CTE/TCVN', 
+            href: '/sys/config',      
+            icon: Cog6ToothIcon 
+        },
+        { 
+            label: 'Quản lý tài khoản', 
+            href: '/sys/users',       
+            icon: UsersIcon 
+        },
     ],
-  }]
+}]
 
   if (hasEnterprise.value) return [
     {
@@ -123,7 +148,7 @@ const roleLabel = computed(() => {
         {{ isSuperAdmin ? 'SYS' : 'DN' }}
       </div>
       <div v-if="!collapsed" class="flex-1 min-w-0">
-        <div class="text-sm font-bold text-white/90 truncate">AGU Truy Xuất</div>
+        <div class="text-sm font-bold text-white/90 truncate">AGU Traceability</div>
         <div class="text-[11px] text-white/40 truncate">{{ roleLabel }}</div>
       </div>
       <!-- Toggle button -->

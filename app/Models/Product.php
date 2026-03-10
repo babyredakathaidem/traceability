@@ -17,11 +17,22 @@ class Product extends Model
         'image_path',
         'unit',
         'status',
+        'technical_standards', // TCVN, QCVN
+        'weight',              // Trọng lượng
+        'volume',              // Thể tích
+        'dimensions',          // Kích thước (DxRxC)
+        'gs1_metadata',        // JSON metadata theo TCVN 13274:2020
     ];
 
     protected $casts = [
         'status' => 'string',
+        'gs1_metadata' => 'array',
     ];
+
+    public function validateGtin(): bool
+    {
+        return \App\Services\GS1Validator::isValid($this->gtin);
+    }
 
     public function enterprise(): BelongsTo
     {

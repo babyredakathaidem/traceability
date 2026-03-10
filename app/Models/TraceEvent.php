@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class TraceEvent extends Model
 {
@@ -50,6 +51,20 @@ class TraceEvent extends Model
     public function publisher(): BelongsTo
     {
         return $this->belongsTo(User::class, 'published_by');
+    }
+
+    /**
+     * Các địa điểm truy vết liên quan đến sự kiện này.
+     * Mỗi location có ai_type override trong pivot.
+     */
+    public function locations(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            TraceLocation::class,
+            'trace_event_locations',
+            'trace_event_id',
+            'trace_location_id'
+        )->withPivot('ai_type')->withTimestamps();
     }
 
     // ── Helpers ───────────────────────────────────────────
@@ -133,6 +148,12 @@ class TraceEvent extends Model
 
             // Đính kèm
             'attachments'   => $this->attachments ?? [],
+
+            // Địa điểm truy vết — AI(410-417) theo TCVN 13274:2020 Bảng 4
+            // Eager load bằng: $event->load('locations') trước khi gọi hàm này
+            'locations'     => $this->relationLoaded('locations')
+                ? $this->locations->map(fn($loc) => $loc->toIpfsFragment())->values()->toArray()
+                : [],
         ];
     }
 }

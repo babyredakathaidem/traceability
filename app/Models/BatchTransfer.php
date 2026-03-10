@@ -17,11 +17,18 @@ class BatchTransfer extends Model
         'note',
         'status',
         'transfer_event_id',
+        'accepted_event_id',  // Link với sự kiện nhận hàng tại đích
+        'sscc_code',          // Serial Shipping Container Code (AI 00)
         'transferred_at',
         'accepted_at',
         'rejected_at',
         'rejection_reason',
     ];
+
+    public function validateSscc(): bool
+    {
+        return \App\Services\GS1Validator::isValid($this->sscc_code);
+    }
 
     protected $casts = [
         'transferred_at' => 'datetime',

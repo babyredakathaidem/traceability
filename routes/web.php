@@ -20,6 +20,7 @@ use App\Http\Controllers\BatchMergeController;
 use App\Http\Controllers\BatchTransferController;
 use App\Http\Controllers\Api\EpcisController;
 use App\Http\Controllers\CertificateController;
+use App\Http\Controllers\TraceLocationController;
 
 
 
@@ -179,6 +180,18 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])->group(functio
     Route::post('/events/{traceEvent}/attachments', [TraceEventController::class, 'uploadAttachment'])
         ->name('events.attachments.store');
 
+    // ── Trace Locations (Địa điểm truy vết AI 410-417) ───────────
+    Route::get('/trace-locations', [TraceLocationController::class, 'index'])
+        ->name('trace-locations.index');
+    Route::post('/trace-locations', [TraceLocationController::class, 'store'])
+        ->name('trace-locations.store');
+    Route::put('/trace-locations/{traceLocation}', [TraceLocationController::class, 'update'])
+        ->name('trace-locations.update');
+    Route::delete('/trace-locations/{traceLocation}', [TraceLocationController::class, 'destroy'])
+        ->name('trace-locations.destroy');
+    Route::post('/trace-locations/generate-gln', [TraceLocationController::class, 'generateGln'])
+        ->name('trace-locations.generate-gln');
+
     // ── Vietmap proxy ─────────────────────────────────────
     Route::post('/vietmap/autocomplete', [VietmapController::class, 'autocomplete'])->name('vietmap.autocomplete');
     Route::post('/vietmap/place', [VietmapController::class, 'place'])->name('vietmap.place');
@@ -224,6 +237,11 @@ Route::get('/api/certificates/list', [CertificateController::class, 'listForBatc
     ->name('api.certificates.list')
     ->middleware(['auth', 'tenant.ready', 'tenant']);
 
+// API endpoint địa điểm truy vết (dùng trong TraceEventController dropdown)
+Route::get('/api/trace-locations', [TraceLocationController::class, 'listForEvent'])
+    ->name('api.trace-locations.list')
+    ->middleware(['auth', 'tenant.ready', 'tenant']);
+
 /*
 |--------------------------------------------------------------------------
 | System Admin (super admin only)
@@ -238,6 +256,17 @@ Route::middleware(['auth', 'super'])
         Route::post('/enterprises/{enterprise}/reject', [EnterpriseApprovalController::class, 'reject'])->name('sys.enterprises.reject');
         Route::post('/enterprises/{enterprise}/block', [EnterpriseApprovalController::class, 'block'])->name('sys.enterprises.block');
         Route::post('/enterprises/{enterprise}/unblock', [EnterpriseApprovalController::class, 'unblock'])->name('sys.enterprises.unblock');
+
+        // ── Global Config (TCVN & KDE Standards) ──────────────
+        Route::get('/config', [\App\Http\Controllers\Sys\GlobalConfigController::class, 'index'])->name('sys.config.index');
+        Route::post('/config/categories', [\App\Http\Controllers\Sys\GlobalConfigController::class, 'storeCategory'])->name('sys.config.categories.store');
+        Route::put('/config/cte/{template}', [\App\Http\Controllers\Sys\GlobalConfigController::class, 'updateCte'])->name('sys.config.cte.update');
+        Route::get('/stats', [\App\Http\Controllers\Sys\GlobalConfigController::class, 'systemStats'])->name('sys.stats');
+
+        // ── User Management (Global) ─────────────────────────
+        Route::get('/users', [\App\Http\Controllers\Sys\UserManagementController::class, 'index'])->name('sys.users.index');
+        Route::put('/users/{user}', [\App\Http\Controllers\Sys\UserManagementController::class, 'update'])->name('sys.users.update');
+        Route::post('/users/{user}/toggle', [\App\Http\Controllers\Sys\UserManagementController::class, 'toggleStatus'])->name('sys.users.toggle');
     });
 
 require __DIR__ . '/auth.php';

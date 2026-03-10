@@ -168,8 +168,11 @@ class GS1Service
      */
     public function buildGS1_128(string $gtin, string $lotNumber, ?string $expiryDate = null): string
     {
-        $gtin14 = str_pad(preg_replace('/\D/', '', $gtin), 14, '0', STR_PAD_LEFT);
-        $ai     = "(01){$gtin14}(10){$lotNumber}";
+        // Dùng buildProductTraceCode để đảm bảo GTIN-14 có check digit đúng
+        // (không được pad đơn giản — phải bỏ check digit cũ rồi tính lại)
+        $ai01Str = $this->buildProductTraceCode($gtin);
+        $gtin14  = $this->extractGtin14FromAi01($ai01Str) ?? str_pad(preg_replace('/\D/', '', $gtin), 14, '0', STR_PAD_LEFT);
+        $ai      = "(01){$gtin14}(10){$lotNumber}";
 
         if ($expiryDate) {
             try {
@@ -198,13 +201,160 @@ class GS1Service
         $cleanGtin = preg_replace('/\D/', '', $gtin);
 
         return [
-            'gtin'    => $cleanGtin,
-            'gtin_valid' => $this->validateGTIN($cleanGtin),
-            'gln'     => $gln,
-            'lot'     => $lotNumber,
-            'sgtin'   => $cleanGtin ? $this->buildSGTIN($cleanGtin, $lotNumber) : null,
-            'gs1_128' => $cleanGtin ? $this->buildGS1_128($cleanGtin, $lotNumber, $expiryDate) : null,
+            'gtin'         => $cleanGtin,
+            'gtin_valid'   => $this->validateGTIN($cleanGtin),
+            'gln'          => $gln,
+            'lot'          => $lotNumber,
+            'sgtin'        => $cleanGtin ? $this->buildSGTIN($cleanGtin, $lotNumber) : null,
+            'gs1_128'      => $cleanGtin ? $this->buildGS1_128($cleanGtin, $lotNumber, $expiryDate) : null,
+            // Mã truy vết vật phẩm AI(01) — TCVN 13274:2020 Bảng 1
+            'ai01_product' => $cleanGtin ? $this->buildProductTraceCode($cleanGtin) : null,
             'standard_ref' => 'GS1 General Specifications v24 / TCVN 12850:2019',
         ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // MÃ TRUY VẾT VẬT PHẨM — AI (01) theo TCVN 13274:2020 Bảng 1
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Tạo mã truy vết vật phẩm theo TCVN 13274:2020 — Bảng 1.
+     *
+     * Cấu trúc GTIN-14:
+     *   N1        = Số chỉ thị (packaging level: 0=item, 1-8=bao gói, 9=biến đổi)
+     *   N2–N7/N10 = Tiền tố mã doanh nghiệp (GS1 Company Prefix)
+     *   N8–N13    = Số tham chiếu vật phẩm (Item Reference)
+     *   N14       = Số kiểm tra (Check digit)
+     *
+     * Format chuẩn in lên tem/nhãn: (01)NNNNNNNNNNNNNN
+     *
+     * @param string $gtin         GTIN gốc (8, 12, 13 hoặc 14 chữ số)
+     * @param int    $packagingLevel  Cấp độ bao gói N1 (0–9), mặc định 0 = đơn vị hàng hoá
+     * @return string              Chuỗi AI(01) đầy đủ: "(01)NNNNNNNNNNNNNN"
+     */
+    public function buildProductTraceCode(string $gtin, int $packagingLevel = 0): string
+    {
+        $digits = preg_replace('/\D/', '', $gtin);
+
+        // Pad lên 13 chữ số (bỏ check digit cuối nếu đã có)
+        // rồi thêm N1 vào đầu → tổng 14 chữ số
+        if (strlen($digits) === 14) {
+            // Đã là GTIN-14: thay N1 bằng packagingLevel
+            $base14 = str_pad($packagingLevel, 1) . substr($digits, 1, 12);
+        } elseif (strlen($digits) === 13) {
+            // GTIN-13: thêm N1 vào đầu, bỏ check digit cũ
+            $base14 = $packagingLevel . substr($digits, 0, 12);
+        } else {
+            // GTIN-8 / GTIN-12: pad trái về 12 số, thêm N1
+            $padded = str_pad($digits, 12, '0', STR_PAD_LEFT);
+            $base14 = $packagingLevel . substr($padded, 0, 12);
+        }
+
+        // Tính lại check digit cho chuỗi 14 chữ số
+        $checkDigit = $this->gs1CheckDigit(substr($base14, 0, 13), 14);
+        $gtin14     = $base14 . $checkDigit;
+
+        return "(01){$gtin14}";
+    }
+
+    /**
+     * Trích GTIN-14 thuần (không có AI prefix) từ chuỗi AI(01).
+     *
+     * @param string $ai01String  Ví dụ: "(01)08930000000018"
+     * @return string|null        Ví dụ: "08930000000018"
+     */
+    public function extractGtin14FromAi01(string $ai01String): ?string
+    {
+        if (preg_match('/\(01\)(\d{14})/', $ai01String, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // MÃ TRUY VẾT ĐỊA ĐIỂM — AI (410–417) theo TCVN 13274:2020 Bảng 4
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Các AI type địa điểm được định nghĩa trong TCVN 13274:2020 Bảng 4.
+     */
+    public const LOCATION_AI_TYPES = [
+        '410' => 'ship_to',          // Địa điểm nhận hàng
+        '411' => 'bill_to',          // Địa điểm gửi hàng / bill-to
+        '412' => 'purchased_from',   // Địa điểm mua hàng / nhà cung cấp
+        '414' => 'physical',         // Địa điểm vật lý chung
+        '416' => 'production',       // Địa điểm sản xuất / vùng trồng
+        '417' => 'party',            // Địa điểm giao dịch
+    ];
+
+    /**
+     * Tạo mã truy vết địa điểm theo TCVN 13274:2020 — Bảng 4.
+     *
+     * Cấu trúc: AI(4xx) + GLN (13 chữ số)
+     * Format in lên tem/nhãn: "(416)8930000000018"
+     *
+     * @param string $aiType  Loại AI: '410', '411', '412', '414', '416', '417'
+     * @param string $gln     GLN 13 chữ số của địa điểm
+     * @return string         Chuỗi AI đầy đủ: "(416)NNNNNNNNNNNNN"
+     * @throws \InvalidArgumentException nếu aiType không hợp lệ hoặc GLN sai
+     */
+    public function buildLocationCode(string $aiType, string $gln): string
+    {
+        if (! array_key_exists($aiType, self::LOCATION_AI_TYPES)) {
+            throw new \InvalidArgumentException(
+                "AI type '{$aiType}' không hợp lệ. Chỉ chấp nhận: "
+                . implode(', ', array_keys(self::LOCATION_AI_TYPES))
+            );
+        }
+
+        $cleanGln = preg_replace('/\D/', '', $gln);
+
+        if (! $this->validateGLN($cleanGln)) {
+            throw new \InvalidArgumentException(
+                "GLN '{$gln}' không hợp lệ. Phải là 13 chữ số với check digit đúng."
+            );
+        }
+
+        return "({$aiType}){$cleanGln}";
+    }
+
+    /**
+     * Tạo mã địa điểm mà không validate (dùng khi GLN là nội bộ / demo).
+     *
+     * @param string $aiType  Loại AI: '410'–'417'
+     * @param string $gln     GLN bất kỳ (tự động pad về 13 số nếu thiếu)
+     */
+    public function buildLocationCodeLoose(string $aiType, string $gln): string
+    {
+        $cleanGln = str_pad(preg_replace('/\D/', '', $gln), 13, '0', STR_PAD_LEFT);
+        return "({$aiType}){$cleanGln}";
+    }
+
+    /**
+     * Tạo GS1-128 đầy đủ cho một lô hàng kèm theo địa điểm sản xuất (AI 416).
+     *
+     * Ví dụ: "(01)08930000000018(10)LG07001(17)270307(416)8930000000018"
+     *
+     * @param string      $gtin       GTIN sản phẩm
+     * @param string      $lotNumber  Mã lô
+     * @param string|null $expiryDate Hạn sử dụng
+     * @param string|null $locationGln GLN của địa điểm sản xuất
+     * @param string      $locationAi  AI type địa điểm (mặc định '416')
+     */
+    public function buildGS1_128WithLocation(
+        string  $gtin,
+        string  $lotNumber,
+        ?string $expiryDate  = null,
+        ?string $locationGln = null,
+        string  $locationAi  = '416',
+    ): string {
+        $ai = $this->buildGS1_128($gtin, $lotNumber, $expiryDate);
+
+        if ($locationGln) {
+            $cleanGln = preg_replace('/\D/', '', $locationGln);
+            $ai .= "({$locationAi}){$cleanGln}";
+        }
+
+        return $ai;
     }
 }

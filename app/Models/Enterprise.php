@@ -28,7 +28,14 @@ class Enterprise extends Model
         'rejected_at','rejected_by','rejection_reason',
         'terms_accepted_at',
         'code',
+        'gln',        // Global Location Number (TCVN 13274:2020)
+        'tax_id',     // Mã số thuế bắt buộc
     ];
+
+    public function validateGln(): bool
+    {
+        return \App\Services\GS1Validator::isValid($this->gln);
+    }
 
     protected $appends = ['full_address'];
 
