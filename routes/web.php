@@ -19,6 +19,10 @@ use App\Http\Controllers\BatchSplitController;
 use App\Http\Controllers\BatchMergeController;
 use App\Http\Controllers\BatchTransferController;
 use App\Http\Controllers\BatchTransformationController;
+use App\Http\Controllers\TransferEventController;
+use App\Http\Controllers\ObservationEventController;
+use App\Http\Controllers\TransformationEventController;
+
 use App\Http\Controllers\Api\EpcisController;
 use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\TraceLocationController;
@@ -264,7 +268,55 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])->group(functio
     Route::get('/dev/vietmap-place-test', function () {
         return Inertia::render('Dev/VietmapPlaceTest');
     })->name('dev.vietmap-place-test');
+
+    // ── Transfer Events (Kiến trúc Sự kiện trung tâm) ──────
+    Route::post('/events/transfer-in',              [TransferEventController::class, 'storeTransferIn'])->name('events.transfer.in');
+    Route::post('/events/transfer-out',             [TransferEventController::class, 'storeTransferOut'])->name('events.transfer.out');
+    Route::post('/events/transfer/{event}/accept',  [TransferEventController::class, 'acceptTransfer'])->name('events.transfer.accept');
+    Route::post('/events/transfer/{event}/reject',  [TransferEventController::class, 'rejectTransfer'])->name('events.transfer.reject');
+    Route::get('/events/transfer/pending',          [TransferEventController::class, 'pendingIndex'])->name('events.transfer.pending');
+
+    // ── Observation Events ──────────────────────────────────
+    Route::get('/events/create/observation', [ObservationEventController::class, 'create'])
+        ->name('observation-events.create');
+    Route::post('/events/observation',       [ObservationEventController::class, 'store'])
+        ->name('observation-events.store');
+    Route::put('/events/observation/{traceEvent}',    [ObservationEventController::class, 'update'])
+        ->name('observation-events.update');
+    Route::delete('/events/observation/{traceEvent}', [ObservationEventController::class, 'destroy'])
+        ->name('observation-events.destroy');
+
+    // ── Transformation Events ───────────────────────────────
+    Route::get('/events/create/transformation', [TransformationEventController::class, 'create'])
+        ->name('transformation-events.create');
+    Route::post('/events/transformation',       [TransformationEventController::class, 'store'])
+        ->name('transformation-events.store');
+    Route::get('/events/transformation/{traceEvent}', [TransformationEventController::class, 'show'])
+        ->name('transformation-events.show');
+    Route::delete('/events/transformation/{traceEvent}', [TransformationEventController::class, 'destroy'])
+        ->name('transformation-events.destroy');
+
+    // ── Transfer Out Create page (Inertia render) ───────────
+    Route::get('/events/create/transfer-out', function () {
+        $enterprises = \App\Models\Enterprise::where('id', '!=', auth()->user()->enterprise_id)
+            ->where('status', 'approved')
+            ->select('id', 'name', 'code', 'gln', 'address')
+            ->get();
+        $batches = \App\Models\Batch::where('enterprise_id', auth()->user()->enterprise_id)
+            ->where('status', 'active')
+            ->with('enterprise:id,name')
+            ->get();
+        return \Inertia\Inertia::render('Events/CreateTransferOut', [
+            'batches'     => $batches,
+            'enterprises' => $enterprises,
+        ]);
+    })->name('transfer.out.create');
+
+    // Alias routes dùng trong CreateTransferOut.vue form submit
+    Route::post('/transfer/out',    [TransferEventController::class, 'storeTransferOut'])->name('transfer.out');
+    Route::get('/transfer/pending', [TransferEventController::class, 'pendingIndex'])->name('transfer.pending');
 });
+
 
 /*
 |--------------------------------------------------------------------------

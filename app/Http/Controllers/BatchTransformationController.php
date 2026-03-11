@@ -124,7 +124,6 @@ class BatchTransformationController extends Controller
 
             // ── Tạo sự kiện chế biến ─────────────────────────
             $event = TraceEvent::create([
-                'batch_id'      => $outputBatch->id,
                 'enterprise_id' => $tenantId,
                 'event_type'    => 'transformation',
                 'cte_code'      => 'transformation',
@@ -147,6 +146,20 @@ class BatchTransformationController extends Controller
                 'status'     => 'draft',
                 'event_time' => now(),
             ]);
+
+            // Gắn lô đầu ra vào pivot event_output_batches
+            $event->outputBatches()->attach($outputBatch->id, [
+                'quantity' => $outputQty,
+                'unit'     => $unit,
+            ]);
+
+            // Gắn lô đầu vào vào pivot event_input_batches
+            foreach ($inputBatches as $inputBatch) {
+                $event->inputBatches()->attach($inputBatch->id, [
+                    'quantity' => $inputBatch->current_quantity ?? $inputBatch->quantity ?? 0,
+                    'unit'     => $inputBatch->unit,
+                ]);
+            }
 
             // ── Ghi lineage cho từng lô input ────────────────
             foreach ($inputBatches as $inputBatch) {

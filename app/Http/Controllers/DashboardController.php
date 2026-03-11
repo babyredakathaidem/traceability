@@ -30,7 +30,8 @@ class DashboardController extends Controller
             ")
             ->first();
 
-        $eventStats = TraceEvent::whereHas('batch', fn($q) => $q->where('enterprise_id', $tenantId))
+        // FIX: Thống kê sự kiện theo enterprise_id trực tiếp
+        $eventStats = TraceEvent::where('enterprise_id', $tenantId)
             ->selectRaw("
                 COUNT(*) as total,
                 SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published,
@@ -76,15 +77,17 @@ class DashboardController extends Controller
             ->limit(5)
             ->get(['id', 'code', 'product_id', 'product_name', 'status', 'created_at']);
 
-        // Lấy event counts trong 1 query — tránh N+1
+        // FIX: Đếm số sự kiện qua bảng trung gian event_input_batches (lô hàng là đầu vào của sự kiện)
         $batchIds = $recentBatches->pluck('id');
-        $eventCounts = TraceEvent::whereIn('batch_id', $batchIds)
+        $eventCounts = DB::table('event_input_batches')
+            ->join('trace_events', 'event_input_batches.trace_event_id', '=', 'trace_events.id')
+            ->whereIn('event_input_batches.batch_id', $batchIds)
             ->select(
-                'batch_id',
+                'event_input_batches.batch_id',
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published")
+                DB::raw("SUM(CASE WHEN trace_events.status = 'published' THEN 1 ELSE 0 END) as published")
             )
-            ->groupBy('batch_id')
+            ->groupBy('event_input_batches.batch_id')
             ->get()
             ->keyBy('batch_id');
 
@@ -102,8 +105,6 @@ class DashboardController extends Controller
         });
 
         // ── Lô bị thu hồi gần nhất ───────────────────────────────
-        // Không dùng with('recaller') vì relationship có thể chưa define trong model
-        // → lấy user IDs rồi map thủ công
         $recallRows = BatchRecall::with('batch:id,code')
             ->whereHas('batch', fn($q) => $q->where('enterprise_id', $tenantId))
             ->orderByDesc('recalled_at')
@@ -139,7 +140,6 @@ class DashboardController extends Controller
             ]);
 
         // ── Top lô được scan nhiều nhất ──────────────────────────
-        // Không dùng ->with() trên query có groupBy — query riêng rồi map
         $topScanRows = QrScanLog::where('enterprise_id', $tenantId)
             ->whereNotNull('batch_id')
             ->where('decision', 'allowed')

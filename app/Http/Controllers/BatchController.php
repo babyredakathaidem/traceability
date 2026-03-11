@@ -161,9 +161,8 @@ class BatchController extends Controller
         // ── AUTO-GENERATE TraceEvents cho từng bước trong quy trình ──
         $product->load('processes');
         foreach ($product->processes as $step) {
-            TraceEvent::create([
+            $event = TraceEvent::create([
                 'enterprise_id'   => $tenantId,
-                'batch_id'        => $batch->id,
                 'process_step_id' => $step->id,
                 'event_token'     => (string) Str::uuid(),
                 'cte_code'        => $step->cte_code ?? 'custom',
@@ -175,6 +174,8 @@ class BatchController extends Controller
                     'is_required' => $step->is_required,
                 ],
             ]);
+            // Liên kết lô này với event qua bảng pivot event_input_batches
+            $event->inputBatches()->attach($batch->id);
         }
 
         // Đảm bảo QR codes tồn tại (bao gồm GS1 Digital Link)
@@ -228,7 +229,9 @@ class BatchController extends Controller
         $tenantId = $this->tenantId($request);
         abort_unless($batch->enterprise_id === $tenantId, 403);
 
-        if ($batch->events()->where('status', 'published')->exists()) {
+        // Kiểm tra qua pivot table (batch_id đã bị xóa khỏi trace_events)
+        $hasPublished = $batch->events()->where('trace_events.status', 'published')->exists();
+        if ($hasPublished) {
             return back()->withErrors(['error' => 'Không thể xóa lô đã có sự kiện published.']);
         }
 

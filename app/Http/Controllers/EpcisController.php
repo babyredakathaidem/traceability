@@ -108,11 +108,11 @@ class EpcisController extends Controller
 
         // Load toàn bộ published events theo lineage
         $events = TraceEvent::with([
-            'batch:id,code,product_id,enterprise_id',
-            'batch.product:id,name,gtin',
-            'batch.enterprise:id,name,code,gln,province',
+            'inputBatches:id,code,product_id,enterprise_id',
+            'inputBatches.product:id,name,gtin',
+            'inputBatches.enterprise:id,name,code,gln,province',
         ])
-            ->whereIn('batch_id', $allBatchIds)
+            ->whereHas('inputBatches', fn($q) => $q->whereIn('batches.id', $allBatchIds))
             ->where('status', 'published')
             ->orderBy('event_time')
             ->orderBy('id')
@@ -220,7 +220,7 @@ class EpcisController extends Controller
 
         // SGTIN = urn:epc:id:sgtin:{company_prefix}.{item_ref}.{serial}
         // Với lot-based system → dùng LGTIN (lot) thay vì serial
-        $sgtin = $this->buildSgtin($gtin, $event->batch?->code ?? '');
+        $sgtin = $this->buildSgtin($gtin, $event->inputBatches->first()?->code ?? '');
 
         $epcisEvent = [
             'type'                  => $eventType,
@@ -352,7 +352,7 @@ class EpcisController extends Controller
      */
     private function resolveReadPoint(TraceEvent $event): string
     {
-        $enterprise = $event->batch?->enterprise;
+        $enterprise = $event->inputBatches->first()?->enterprise;
         $gln        = $enterprise?->gln;
 
         if ($gln) {
@@ -426,7 +426,7 @@ class EpcisController extends Controller
     {
         $kde        = $event->kde_data ?? [];
         $result     = [];
-        $enterprise = $event->batch?->enterprise;
+        $enterprise = $event->inputBatches->first()?->enterprise;
         $gln        = $enterprise?->gln;
 
         if (isset($kde['from_enterprise'])) {
@@ -452,7 +452,7 @@ class EpcisController extends Controller
      */
     private function buildIlmd(TraceEvent $event): array
     {
-        $batch = $event->batch;
+        $batch = $event->inputBatches->first();
         $ilmd  = [];
 
         if ($batch?->production_date) {

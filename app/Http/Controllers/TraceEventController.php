@@ -40,12 +40,12 @@ class TraceEventController extends Controller
                 'batch_type', 'certifications', 'current_quantity', 'unit']);
 
         $events = TraceEvent::with([
-            'batch:id,code,product_id,product_name',
-            'batch.product:id,name,gtin',
+            'inputBatches:id,code,product_id,product_name',
+            'inputBatches.product:id,name,gtin',
             'publisher:id,name',
         ])
-            ->whereHas('batch', fn($q) => $q->where('enterprise_id', $tenantId))
-            ->when($batchId, fn($q) => $q->where('batch_id', $batchId))
+            ->whereHas('inputBatches', fn($q) => $q->where('enterprise_id', $tenantId))
+            ->when($batchId, fn($q) => $q->whereHas('inputBatches', fn($q2) => $q2->where('batches.id', $batchId)))
             ->orderByDesc('event_time')
             ->orderByDesc('id')
             ->paginate(15)
@@ -102,7 +102,7 @@ class TraceEventController extends Controller
 
         $publishedCodes = [];
         if ($batchId) {
-            $publishedCodes = TraceEvent::where('batch_id', $batchId)
+            $publishedCodes = TraceEvent::whereHas('inputBatches', fn($q) => $q->where('batches.id', $batchId))
                 ->where('status', 'published')
                 ->whereNotNull('cte_code')
                 ->pluck('cte_code')
@@ -152,9 +152,8 @@ class TraceEventController extends Controller
             return back()->withErrors(['batch' => 'Lô này đang bị thu hồi, không thể thêm sự kiện mới.']);
         }
 
-        TraceEvent::create([
+        $event = TraceEvent::create([
             'enterprise_id' => $tenantId,
-            'batch_id'      => $batch->id,
             'cte_code'      => $data['cte_code'],
             'event_type'    => $data['cte_code'],
             'event_time'    => $data['event_time'],
@@ -165,9 +164,10 @@ class TraceEventController extends Controller
             'where_lng'     => $data['where_lng'] ?? null,
             'why_reason'    => $data['why_reason'] ?? null,
             'note'          => $data['note'] ?? null,
-            'location'      => $data['where_address'] ?? null,
             'status'        => 'draft',
         ]);
+        // Liên kết lô với event qua pivot (batch_id đã bị xóa khỏi trace_events)
+        $event->inputBatches()->attach($batch->id);
 
         return back()->with('success', 'Đã lưu sự kiện (draft). Kiểm tra lại rồi publish lên IPFS.');
     }
@@ -271,7 +271,7 @@ class TraceEventController extends Controller
      */
     public function publish(Request $request, TraceEvent $traceEvent)
     {
-        $traceEvent->loadMissing('batch.product.category', 'batch.enterprise');
+        $traceEvent->loadMissing('inputBatches.product.category', 'inputBatches.enterprise');
         $this->assertTenant($request, $traceEvent);
 
         if ($traceEvent->isPublished()) {
@@ -301,8 +301,8 @@ class TraceEventController extends Controller
         try {
             $fabricResult = $this->blockchain->recordEvent(
                 eventID:      (string) $traceEvent->id,
-                batchCode:    (string) ($traceEvent->batch?->code ?? ''),
-                enterpriseID: (string) ($traceEvent->batch?->enterprise?->code ?? ''),
+                batchCode:    (string) ($traceEvent->inputBatches->first()?->code ?? ''),
+                enterpriseID: (string) ($traceEvent->inputBatches->first()?->enterprise?->code ?? ''),
                 cteCode:      (string) $traceEvent->cte_code,
                 contentHash:  $contentHash,
                 ipfsCid:      $ipfsResult['cid'],
@@ -352,7 +352,7 @@ class TraceEventController extends Controller
 
         // ── 5. Gửi email xác nhận ──────────────────────────
         Mail::to($request->user()->email)->queue(
-            new EventPublishedMail($traceEvent->fresh(['batch.product']))
+            new EventPublishedMail($traceEvent->fresh(['inputBatches.product']))
         );
 
         // ── 6. Flash message ───────────────────────────────

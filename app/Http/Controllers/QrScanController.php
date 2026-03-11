@@ -8,11 +8,20 @@ use App\Models\BatchLineage;
 use App\Models\Qrcode;
 use App\Models\QrScanLog;
 use App\Models\TraceEvent;
+use App\Services\GS1Service;
+use App\Services\LineageService;
+use App\Services\QrCodeService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class QrScanController extends Controller
 {
+    public function __construct(
+        private LineageService $lineageService,
+        private QrCodeService  $qrCodeService,
+        private GS1Service     $gs1Service,
+    ) {}
+
     public function gatePublic(string $token)
     {
         return Inertia::render('Trace/GatePublic', ['token' => $token]);
@@ -30,13 +39,14 @@ class QrScanController extends Controller
     private function qrWithRelations(): \Illuminate\Database\Eloquent\Builder
     {
         return Qrcode::withoutGlobalScopes()->with([
-            'batch' => fn($q) => $q->withoutGlobalScopes(),
+            'batch'                        => fn($q) => $q->withoutGlobalScopes(),
             'batch.product',
             'batch.product.category',
             'batch.enterprise',
             'batch.activeRecall',
             'batch.activeRecall.recalledBy',
             'batch.certificates',
+            'batch.originEvent:id,event_code',   // thêm để lấy origin_event_code
         ]);
     }
 
@@ -58,7 +68,6 @@ class QrScanController extends Controller
         $lat = $request->input('lat');
         $lng = $request->input('lng');
 
-        // Nếu chưa có GPS, hiện trang Gate
         if ($lat === null || $lng === null) {
             return $this->gatePublic($token);
         }
@@ -145,11 +154,10 @@ class QrScanController extends Controller
         $gtinPadded = str_pad($gtin, 14, '0', STR_PAD_LEFT);
         $type = $request->query('type', 'public');
 
-        // BỎ QUA GLOBAL SCOPES cho cả Qrcode và Batch
         $qr = $this->qrWithRelations()
             ->where('gtin_used', $gtinPadded)
             ->whereHas('batch', function ($q) use ($lotDecoded) {
-                $q->withoutGlobalScopes() // ← QUAN TRỌNG: Phá xích cho Batch subquery
+                $q->withoutGlobalScopes()
                   ->where(function($sq) use ($lotDecoded) {
                       $sq->where('code', 'like', '%' . $lotDecoded . '%')
                          ->orWhere('code', $lotDecoded);
@@ -167,7 +175,7 @@ class QrScanController extends Controller
         }
 
         $request->merge(['_gs1_resolved' => true]);
-        
+
         if ($qr->type === 'private') {
             return $this->resolvePrivate($request, $qr->token);
         }
@@ -182,19 +190,19 @@ class QrScanController extends Controller
     {
         if (!$batch) return [];
 
-        $recallDetails = null;
+        $recallDetails     = null;
         $isCascadeRecalled = false;
-        $parentBatchCode = null;
+        $parentBatchCode   = null;
 
         if ($batch->status === 'recalled') {
             $activeRecall = $batch->activeRecall;
             if ($activeRecall) {
                 $recallDetails = [
-                    'reason' => $activeRecall->reason,
-                    'notice_content' => $activeRecall->notice_content,
-                    'recalled_at' => optional($activeRecall->recalled_at)->format('H:i d/m/Y'),
-                    'recalled_by' => $activeRecall->recalledBy?->name ?? 'Hệ thống',
-                    'ipfs_cid' => $activeRecall->ipfs_cid,
+                    'reason'          => $activeRecall->reason,
+                    'notice_content'  => $activeRecall->notice_content,
+                    'recalled_at'     => optional($activeRecall->recalled_at)->format('H:i d/m/Y'),
+                    'recalled_by'     => $activeRecall->recalledBy?->name ?? 'Hệ thống',
+                    'ipfs_cid'        => $activeRecall->ipfs_cid,
                 ];
                 if ($activeRecall->parent_recall_id) {
                     $isCascadeRecalled = true;
@@ -205,86 +213,105 @@ class QrScanController extends Controller
             }
         }
 
+        // GS1 AI(01) — GTIN-14 có ký hiệu GS1 AI
+        $gtin14    = $batch->gtin_cached ?? null;
+        $ai01Code  = $gtin14 ? "(01){$gtin14}" : null;
+
         return [
-            'id' => $batch->id,
-            'code' => $batch->code,
+            'id'              => $batch->id,
+            'code'            => $batch->code,
             'production_date' => optional($batch->production_date)->format('d/m/Y'),
-            'expiry_date' => optional($batch->expiry_date)->format('d/m/Y'),
-            'quantity' => $batch->quantity,
-            'unit' => $batch->unit,
-            'status' => $batch->status,
-            'recall_details' => $recallDetails,
+            'expiry_date'     => optional($batch->expiry_date)->format('d/m/Y'),
+            'quantity'        => $batch->quantity,
+            'unit'            => $batch->unit,
+            'status'          => $batch->status,
+            'batch_type'      => $batch->batch_type,
+            'recall_details'  => $recallDetails,
             'is_cascade_recalled' => $isCascadeRecalled,
-            'parent_batch_code' => $parentBatchCode,
+            'parent_batch_code'   => $parentBatchCode,
+
+            // Trường mới thêm
+            'origin_event_code' => $batch->originEvent?->event_code,
+            'gs1_128_label'     => $batch->gs1_128_label,
+            'ai01_code'         => $ai01Code,
+
             'certificates' => $batch->certificates?->map(fn($c) => [
-                'name' => $c->name, 'organization' => $c->organization, 'image_url' => $c->image_url, 'is_expired' => $c->isExpired()
+                'name'         => $c->name,
+                'organization' => $c->organization,
+                'image_url'    => $c->image_url,
+                'is_expired'   => $c->isExpired(),
             ]),
             'product' => $batch->product ? [
-                'name' => $batch->product->name, 'gtin' => $batch->product->gtin, 'image_path' => $batch->product->image_path,
-                'category' => $batch->product->category ? ['name_vi' => $batch->product->category->name_vi, 'icon' => $batch->product->category->icon] : null,
+                'name'       => $batch->product->name,
+                'gtin'       => $batch->product->gtin,
+                'image_path' => $batch->product->image_path,
+                'category'   => $batch->product->category ? [
+                    'name_vi' => $batch->product->category->name_vi,
+                    'icon'    => $batch->product->category->icon,
+                ] : null,
             ] : null,
             'enterprise' => $batch->enterprise ? [
-                'name' => $batch->enterprise->name, 'address' => $batch->enterprise->full_address, 'phone' => $batch->enterprise->phone,
+                'name'    => $batch->enterprise->name,
+                'address' => $batch->enterprise->full_address,
+                'phone'   => $batch->enterprise->phone,
             ] : null,
         ];
     }
 
+    /**
+     * Load published events của toàn bộ cây lineage — dùng LineageService.
+     */
     private function loadEvents($batch): array
     {
         if (!$batch) return [];
-        $allBatchIds = [];
-        $this->collectAncestorBatchIds($batch->id, $allBatchIds, 0);
 
-        return TraceEvent::withoutGlobalScopes()
-            ->with(['batch'=>fn($q)=>$q->withoutGlobalScopes(),'batch.enterprise'])
-            ->whereIn('batch_id', $allBatchIds)
-            ->where('status', 'published')
-            ->orderBy('event_time')
-            ->get()
-            ->map(fn($e) => [
-                'id' => $e->id, 'cte_code' => $e->cte_code, 'event_time' => optional($e->event_time)->format('d/m/Y H:i'),
-                'who_name' => $e->who_name, 'where_address' => $e->where_address, 'why_reason' => $e->why_reason,
-                'kde_data' => $e->kde_data, 'attachments' => $e->attachments, 'ipfs_cid' => $e->ipfs_cid, 'content_hash' => $e->content_hash,
-                'enterprise' => $e->batch?->enterprise ? ['name' => $e->batch->enterprise->name, 'code' => $e->batch->enterprise->code] : null,
-            ])->toArray();
+        return $this->lineageService
+            ->loadPublishedEvents($batch->id)
+            ->map(fn($event) => $this->lineageService->formatEventForPublic($event))
+            ->values()
+            ->all();
     }
 
-    private function collectAncestorBatchIds(int $batchId, array &$ids, int $depth): void
-    {
-        if ($depth > 10 || in_array($batchId, $ids)) return;
-        $ids[] = $batchId;
-        $batch = Batch::withoutGlobalScopes()->select('id', 'batch_type', 'parent_batch_id')->find($batchId);
-        if (!$batch || in_array($batch->batch_type, ['original', 'received'])) return;
-        if ($batch->batch_type === 'split' && $batch->parent_batch_id) {
-            $this->collectAncestorBatchIds($batch->parent_batch_id, $ids, $depth + 1);
-        }
-        if ($batch->batch_type === 'merged') {
-            $inputIds = BatchLineage::where('output_batch_id', $batchId)->where('transformation_type', 'merge')->pluck('input_batch_id');
-            foreach ($inputIds as $inputId) { $this->collectAncestorBatchIds($inputId, $ids, $depth + 1); }
-        }
-    }
+    // ── Logging ──────────────────────────────────────────────────────
 
     private function logScan($request, $qr, $lat, $lng, $distance, $decision, $reason): void
     {
         QrScanLog::create([
-            'qrcode_id' => $qr->id, 'enterprise_id' => $qr->enterprise_id, 'batch_id' => $qr->batch_id,
-            'qr_type' => $qr->type, 'token' => $qr->token, 'expected_place_name' => $qr->place_name,
-            'lat' => $lat, 'lng' => $lng, 'distance_m' => $distance, 'ip' => $request->ip(),
-            'user_agent' => substr((string)$request->userAgent(), 0, 500), 'decision' => $decision, 'reason' => $reason, 'scanned_at' => now(),
+            'qrcode_id'          => $qr->id,
+            'enterprise_id'      => $qr->enterprise_id,
+            'batch_id'           => $qr->batch_id,
+            'qr_type'            => $qr->type,
+            'token'              => $qr->token,
+            'expected_place_name'=> $qr->place_name,
+            'lat'                => $lat,
+            'lng'                => $lng,
+            'distance_m'         => $distance,
+            'ip'                 => $request->ip(),
+            'user_agent'         => substr((string) $request->userAgent(), 0, 500),
+            'decision'           => $decision,
+            'reason'             => $reason,
+            'scanned_at'         => now(),
         ]);
     }
 
     private function logInvalid($request, $type, $token, $reason): void
     {
         QrScanLog::create([
-            'qr_type' => $type, 'token' => $token, 'ip' => $request->ip(), 'decision' => 'invalid', 'reason' => $reason, 'scanned_at' => now(),
+            'qr_type'    => $type,
+            'token'      => $token,
+            'ip'         => $request->ip(),
+            'decision'   => 'invalid',
+            'reason'     => $reason,
+            'scanned_at' => now(),
         ]);
     }
 
     private function distanceMeters(float $lat1, float $lng1, float $lat2, float $lng2): float
     {
-        $R = 6371000; $dLat = deg2rad($lat2 - $lat1); $dLng = deg2rad($lng2 - $lng1);
-        $a = sin($dLat/2)**2 + cos(deg2rad($lat1))*cos(deg2rad($lat2))*sin($dLng/2)**2;
-        return $R * 2 * atan2(sqrt($a), sqrt(1-$a));
+        $R    = 6371000;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $a    = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+        return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

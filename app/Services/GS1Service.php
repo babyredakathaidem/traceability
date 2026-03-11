@@ -357,4 +357,196 @@ class GS1Service
 
         return $ai;
     }
-}
+
+    // ─────────────────────────────────────────────────────────────────
+    // MỚI: buildFullLabel — tất cả AI codes cho 1 lô (TT02 / TCVN 13274)
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Tạo toàn bộ AI codes cho một lô hàng theo TT02 + TCVN 13274:2020.
+     *
+     * Bắt buộc: AI(01) GTIN-14, AI(10) Lot, AI(11) sản xuất, AI(17) hạn dùng
+     * Tùy chọn: AI(251) event_code, AI(414/416) location GLN, AI(417) enterprise GLN
+     *
+     * @param \App\Models\Batch        $batch  Lô hàng cần tạo label
+     * @param \App\Models\TraceEvent|null $event  Event origin (lấy event_code cho AI 251)
+     */
+    public function buildFullLabel(\App\Models\Batch $batch, ?\App\Models\TraceEvent $event = null): array
+    {
+        // Resolve GTIN-14
+        $rawGtin   = $batch->gtin_cached ?? $batch->product?->gtin ?? '';
+        $ai01Str   = $rawGtin ? $this->buildProductTraceCode($rawGtin) : null;
+        $gtin14    = $ai01Str ? ($this->extractGtin14FromAi01($ai01Str) ?? '') : '';
+
+        // AI(10) — mã lô
+        $ai10 = $batch->code ? "(10){$batch->code}" : null;
+
+        // AI(11) — ngày sản xuất YYMMDD
+        $ai11 = $batch->production_date
+            ? '(11)' . \Carbon\Carbon::parse($batch->production_date)->format('ymd')
+            : null;
+
+        // AI(17) — hạn sử dụng YYMMDD
+        $ai17 = $batch->expiry_date
+            ? '(17)' . \Carbon\Carbon::parse($batch->expiry_date)->format('ymd')
+            : null;
+
+        // AI(251) — mã tham chiếu nguồn gốc (event_code)
+        $originEvent = $event ?? $batch->originEvent;
+        $ai251 = $originEvent?->event_code
+            ? "(251){$originEvent->event_code}"
+            : null;
+
+        // AI(416) — GLN địa điểm sản xuất (từ trace_location của event)
+        $locationGln = $originEvent?->traceLocation?->gln;
+        $ai416 = $locationGln ? "(416){$locationGln}" : null;
+
+        // AI(414) — GLN địa điểm vật lý (fallback nếu không có 416)
+        $ai414 = (!$ai416 && $locationGln) ? "(414){$locationGln}" : null;
+
+        // AI(417) — GLN doanh nghiệp
+        $enterpriseGln = $batch->enterprise?->gln
+            ?? $this->generateGLN($batch->enterprise_id);
+        $ai417 = "(417){$enterpriseGln}";
+
+        // Full GS1-128 string (ghép các AI bắt buộc + tùy chọn)
+        $gs1Parts = array_filter([
+            $ai01Str, $ai10, $ai11, $ai17, $ai251, $ai416 ?? $ai414, $ai417
+        ]);
+        $gs1_128 = implode('', $gs1Parts);
+
+        // GS1 Digital Link URL
+        $domain      = config('app.url', 'https://traceability.local');
+        $digitalLink = $gtin14
+            ? rtrim($domain, '/') . "/01/{$gtin14}" . ($batch->code ? "/10/{$batch->code}" : '')
+            : null;
+
+        return [
+            'ai01'         => $ai01Str,
+            'ai10'         => $ai10,
+            'ai11'         => $ai11,
+            'ai17'         => $ai17,
+            'ai251'        => $ai251,
+            'ai414'        => $ai414,
+            'ai416'        => $ai416,
+            'ai417'        => $ai417,
+            'gs1_128'      => $gs1_128,
+            'digital_link' => $digitalLink,
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // MỚI: buildSscc — Serial Shipping Container Code AI(00)
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Tạo SSCC 18 số chuẩn GS1.
+     *
+     * Cấu trúc: E + Company Prefix (7) + Serial (9) + Check digit
+     *   Extension digit E = 0-9 (mặc định 0)
+     *   Company Prefix  = SYSTEM_GLN_PREFIX (8930000)
+     *   Serial          = enterpriseId padded + seq padded
+     *
+     * Format AI: "(00)E{companyPrefix}{serial}{check}"
+     */
+    public function buildSscc(int $enterpriseId, int $seq, int $extension = 0): string
+    {
+        // Extension (1) + Company Prefix (7) + enterprise part (4) + seq part (5) = 17 digits → check = 18
+        $entPart    = str_pad($enterpriseId, 4, '0', STR_PAD_LEFT);
+        $seqPart    = str_pad($seq, 5, '0', STR_PAD_LEFT);
+        $base17     = $extension . self::SYSTEM_GLN_PREFIX . $entPart . $seqPart; // 17 digits
+        $checkDigit = $this->gs1CheckDigit($base17, 18);
+
+        return "(00){$base17}{$checkDigit}";
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // MỚI: validateEventCode — validate format event_code
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Validate format event_code chuẩn hệ thống.
+     *
+     * Format: EVT-{ENT_CODE 2-10 chars}-{CTE_CODE 2-10 chars}-{YYYYMM 6 digits}-{SEQ 3 digits}
+     * Ví dụ: EVT-AGU-HARVEST-202603-001
+     */
+    public function validateEventCode(string $code): bool
+    {
+        return (bool) preg_match(
+            '/^EVT-[A-Z0-9]{2,10}-[A-Z0-9]{2,10}-\d{6}-\d{3}$/',
+            strtoupper(trim($code))
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // MỚI: parseGs1String — parse chuỗi GS1-128 → array [ai => value]
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Parse chuỗi GS1-128 với các AI trong dấu ngoặc.
+     *
+     * Ví dụ input:  "(01)08938503000018(10)LOT-001(17)270315"
+     * Ví dụ output: ['01' => '08938503000018', '10' => 'LOT-001', '17' => '270315']
+     *
+     * Hỗ trợ:
+     *  - AI có độ dài cố định (01, 11, 17, 00, ...): đọc đúng số ký tự
+     *  - AI có độ dài biến đổi (10, 251, 400, ...): đọc đến AI tiếp theo
+     *
+     * @param string $gs1 Chuỗi GS1-128 đầy đủ
+     * @return array      [ai_code => value]
+     */
+    public function parseGs1String(string $gs1): array
+    {
+        // Độ dài cố định của các AI thông dụng (không tính AI prefix)
+        // Key = AI code, Value = số ký tự của value (null = variable length)
+        $fixedLengths = [
+            '00' => 18,  // SSCC
+            '01' => 14,  // GTIN-14
+            '02' => 14,  // GTIN-14 of contained
+            '11' => 6,   // Production date YYMMDD
+            '12' => 6,   // Due date
+            '13' => 6,   // Packaging date
+            '15' => 6,   // Best before date
+            '17' => 6,   // Expiry date YYMMDD
+            '20' => 2,   // Variant
+            '31' => 6,   // Net weight (prefix 31xx)
+            '32' => 6,
+            '33' => 6,
+            '34' => 6,
+            '35' => 6,
+            '36' => 6,
+        ];
+
+        $result  = [];
+        $pattern = '/\((\d{2,4})\)/';  // match (NN) hoặc (NNNN)
+        $matches = [];
+
+        preg_match_all($pattern, $gs1, $matches, PREG_OFFSET_CAPTURE);
+
+        $tokens = $matches[0]; // array of [fullMatch, offset]
+        $ais    = $matches[1]; // AI codes
+
+        for ($i = 0; $i < count($tokens); $i++) {
+            $ai     = $ais[$i][0];
+            $start  = $tokens[$i][1] + strlen($tokens[$i][0]); // char index after closing )
+            $end    = isset($tokens[$i + 1]) ? $tokens[$i + 1][1] : strlen($gs1);
+
+            // Nếu AI có độ dài cố định → cắt đúng số ký tự
+            $prefix2 = substr($ai, 0, 2);
+            if (isset($fixedLengths[$ai])) {
+                $len   = $fixedLengths[$ai];
+                $value = substr($gs1, $start, $len);
+            } elseif (isset($fixedLengths[$prefix2])) {
+                $len   = $fixedLengths[$prefix2];
+                $value = substr($gs1, $start, $len);
+            } else {
+                // Variable length: đọc đến AI tiếp theo
+                $value = substr($gs1, $start, $end - $start);
+            }
+
+            $result[$ai] = $value;
+        }
+
+        return $result;
+    }
+}

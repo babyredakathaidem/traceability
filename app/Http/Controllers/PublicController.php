@@ -18,7 +18,7 @@ class PublicController extends Controller
 
         // Lay so luong san pham co the truy xuat duoc theo tung category
         $countByCategory = Product::whereHas('batches', fn($q) =>
-                $q->whereHas('events', fn($eq) => $eq->where('status', 'published'))
+                $q->whereHas('inputEvents', fn($eq) => $eq->where('trace_events.status', 'published'))
             )
             ->select('category_id', DB::raw('COUNT(*) as cnt'))
             ->groupBy('category_id')
@@ -53,7 +53,7 @@ class PublicController extends Controller
             ])
             ->where('status', 'active')
             ->whereHas('batches', fn($q) =>
-                $q->whereHas('events', fn($eq) => $eq->where('status', 'published'))
+                $q->whereHas('inputEvents', fn($eq) => $eq->where('trace_events.status', 'published'))
             )
             ->when($search, fn($q) =>
                 $q->where(function ($sub) use ($search) {
@@ -95,7 +95,7 @@ class PublicController extends Controller
 
         $provinces = Product::with('enterprise:id,province')
             ->whereHas('batches', fn($q) =>
-                $q->whereHas('events', fn($eq) => $eq->where('status', 'published'))
+                $q->whereHas('inputEvents', fn($eq) => $eq->where('trace_events.status', 'published'))
             )
             ->join('enterprises', 'products.enterprise_id', '=', 'enterprises.id')
             ->whereNotNull('enterprises.province')
@@ -132,7 +132,7 @@ class PublicController extends Controller
                     $q->where('code', 'like', "%{$query}%")
                       ->orWhereHas('product', fn($pq) => $pq->where('gtin', $query));
                 })
-                ->whereHas('events', fn($eq) => $eq->where('status', 'published'))
+                ->whereHas('inputEvents', fn($eq) => $eq->where('trace_events.status', 'published'))
                 ->limit(10)
                 ->get();
 
@@ -141,10 +141,13 @@ class PublicController extends Controller
             }
 
             $batchIds    = $batches->pluck('id');
-            $eventCounts = \App\Models\TraceEvent::whereIn('batch_id', $batchIds)
+            $eventCounts = \App\Models\TraceEvent::whereHas(
+                    'inputBatches', fn($q) => $q->whereIn('batches.id', $batchIds->toArray())
+                )
                 ->where('status', 'published')
-                ->select('batch_id', DB::raw('COUNT(*) as cnt'))
-                ->groupBy('batch_id')
+                ->join('event_input_batches', 'trace_events.id', '=', 'event_input_batches.trace_event_id')
+                ->select('event_input_batches.batch_id', DB::raw('COUNT(*) as cnt'))
+                ->groupBy('event_input_batches.batch_id')
                 ->pluck('cnt', 'batch_id');
 
             $results = $batches->map(fn($b) => [

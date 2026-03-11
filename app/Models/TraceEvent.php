@@ -5,26 +5,62 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 class TraceEvent extends Model
 {
+    // EPCIS Categories
+    const CAT_OBSERVATION = 'observation';
+    const CAT_TRANSFORMATION = 'transformation';
+    const CAT_TRANSFER_IN = 'transfer_in';
+    const CAT_TRANSFER_OUT = 'transfer_out';
+
+    const CATEGORY_LABELS = [
+        self::CAT_OBSERVATION    => 'Quan sát/Ghi nhận',
+        self::CAT_TRANSFORMATION => 'Biến đổi/Chế biến',
+        self::CAT_TRANSFER_IN    => 'Nhập kho/Tiếp nhận',
+        self::CAT_TRANSFER_OUT   => 'Xuất kho/Chuyển giao',
+    ];
+
+    const CTE_ICONS = [
+        'planting'    => '🌱',
+        'fertilizing' => '🧴',
+        'spraying'    => '💦',
+        'harvesting'  => '🚜',
+        'processing'  => '🏭',
+        'packaging'   => '📦',
+        'transport'   => '🚚',
+        'delivery'    => '🏁',
+        'inspection'  => '🔍',
+    ];
+
     protected $fillable = [
         'enterprise_id',
-        'batch_id',
-        'event_token',  // UUID token riêng để sinh QR cho từng bước
-        'process_step_id', // Liên kết với bước quy trình sản phẩm
-        'event_type',   // legacy — giữ lại backward compat
-        'cte_code',     // mã CTE chuẩn hoặc 'custom'
+        'event_category',
+        'event_code',
+        'event_token',
+        'process_step_id',
+        'event_type', // legacy
+        'cte_code',
         'event_time',
-        'location',     // legacy
-        'note',         // legacy
-        'kde_data',     // JSON 5W đầy đủ
+        'trace_location_id',
+        'to_enterprise_id',
+        'from_enterprise_id',
+        'external_party_name',
+        'external_ref',
+        'transfer_status',
+        'accepted_at',
+        'rejected_at',
+        'rejection_reason',
+        'gs1_document_ref',
+        'kde_data',
         'who_name',
         'where_address',
         'where_lat',
         'where_lng',
         'why_reason',
-        'attachments',  // [{cid, url, name, mime_type}]
+        'attachments',
         'status',
         'content_hash',
         'ipfs_cid',
@@ -36,6 +72,8 @@ class TraceEvent extends Model
 
     protected $casts = [
         'event_time'   => 'datetime',
+        'accepted_at'  => 'datetime',
+        'rejected_at'  => 'datetime',
         'published_at' => 'datetime',
         'kde_data'     => 'array',
         'attachments'  => 'array',
@@ -45,9 +83,38 @@ class TraceEvent extends Model
 
     // ── Relations ─────────────────────────────────────────
 
-    public function batch(): BelongsTo
+    public function inputBatches(): BelongsToMany
     {
-        return $this->belongsTo(Batch::class);
+        return $this->belongsToMany(Batch::class, 'event_input_batches', 'trace_event_id', 'batch_id')
+            ->withPivot(['quantity', 'unit'])
+            ->withTimestamps();
+    }
+
+    public function outputBatches(): BelongsToMany
+    {
+        return $this->belongsToMany(Batch::class, 'event_output_batches', 'trace_event_id', 'batch_id')
+            ->withPivot(['quantity', 'unit'])
+            ->withTimestamps();
+    }
+
+    public function traceLocation(): BelongsTo
+    {
+        return $this->belongsTo(TraceLocation::class, 'trace_location_id');
+    }
+
+    public function toEnterprise(): BelongsTo
+    {
+        return $this->belongsTo(Enterprise::class, 'to_enterprise_id');
+    }
+
+    public function fromEnterprise(): BelongsTo
+    {
+        return $this->belongsTo(Enterprise::class, 'from_enterprise_id');
+    }
+
+    public function eventCertificates(): HasMany
+    {
+        return $this->hasMany(EventCertificate::class);
     }
 
     public function publisher(): BelongsTo
@@ -55,107 +122,112 @@ class TraceEvent extends Model
         return $this->belongsTo(User::class, 'published_by');
     }
 
-    /**
-     * Các địa điểm truy vết liên quan đến sự kiện này.
-     * Mỗi location có ai_type override trong pivot.
-     */
-    public function locations(): BelongsToMany
+    public function batch(): BelongsTo
     {
-        return $this->belongsToMany(
-            TraceLocation::class,
-            'trace_event_locations',
-            'trace_event_id',
-            'trace_location_id'
-        )->withPivot('ai_type')->withTimestamps();
+        return $this->belongsTo(Batch::class); // Backward compatibility nếu cần
     }
 
     // ── Helpers ───────────────────────────────────────────
+
+    public function isObservation(): bool
+    {
+        return $this->event_category === self::CAT_OBSERVATION;
+    }
+
+    public function isTransformation(): bool
+    {
+        return $this->event_category === self::CAT_TRANSFORMATION;
+    }
+
+    public function isTransferIn(): bool
+    {
+        return $this->event_category === self::CAT_TRANSFER_IN;
+    }
+
+    public function isTransferOut(): bool
+    {
+        return $this->event_category === self::CAT_TRANSFER_OUT;
+    }
 
     public function isPublished(): bool
     {
         return $this->status === 'published';
     }
 
-    public function isDraft(): bool
+    public function isPending(): bool
+    {
+        return $this->transfer_status === 'pending';
+    }
+
+    public function canAddInputs(): bool
     {
         return $this->status === 'draft';
     }
 
-    public function hasGps(): bool
-    {
-        return !is_null($this->where_lat) && !is_null($this->where_lng);
-    }
-
-    public function hasAttachments(): bool
-    {
-        return !empty($this->attachments);
-    }
-
     /**
-     * Tên hiển thị của CTE — lấy từ template hoặc event_type cũ
+     * Tự động sinh mã truy vết chuẩn Thông tư 02
+     * Format: EVT-{ENT_CODE}-{CTE_UPPER_7}-{YYYYMM}-{SEQ3}
      */
-    public function getDisplayName(): string
+    public static function generateEventCode(string $enterpriseCode, string $cteCode, int $seq): string
     {
-        if ($this->cte_code && $this->cte_code !== 'custom') {
-            // Có thể eager load nếu cần
-            $tpl = CteTemplate::where('code', $this->cte_code)->first();
-            if ($tpl) return $tpl->name_vi;
-        }
-        return $this->event_type ?? 'Sự kiện tùy chỉnh';
+        $cte = strtoupper(substr($cteCode, 0, 7));
+        $date = Carbon::now()->format('Ym');
+        $seqStr = str_pad($seq, 3, '0', STR_PAD_LEFT);
+
+        return "EVT-{$enterpriseCode}-{$cte}-{$date}-{$seqStr}";
     }
 
     /**
      * Payload chuẩn upload IPFS — bất biến sau publish
-     * Đầy đủ 5W theo TCVN 12850:2019
      */
     public function toIpfsPayload(): array
     {
-        $batch = $this->batch;
+        // Load relations nếu chưa load
+        $this->loadMissing(['inputBatches', 'outputBatches', 'traceLocation', 'enterprise']);
 
         return [
-            // Meta hệ thống
             'system'        => 'AGU Traceability',
-            'version'       => '1.0',
+            'version'       => '2.0',
             'tcvn_ref'      => 'TCVN 12850:2019',
-            'timestamp'     => now()->toISOString(),
-
-            // Định danh đối tượng truy xuất
-            'event_id'      => $this->id,
-            'batch_id'      => $this->batch_id,
-            'batch_code'    => $batch?->code,
-            'gtin'          => $batch?->product?->gtin,
-            'product_name'  => $batch?->getDisplayName(),
-            'enterprise'    => $batch?->enterprise?->name,
-            'enterprise_code' => $batch?->enterprise?->code,
-
-            // CTE
-            'cte_code'      => $this->cte_code ?? 'custom',
-            'cte_name'      => $this->getDisplayName(),
-
+            'event_code'    => $this->event_code,
+            'category'      => self::CATEGORY_LABELS[$this->event_category] ?? $this->event_category,
+            'cte_code'      => $this->cte_code,
+            
             // WHEN
             'event_time'    => optional($this->event_time)->toISOString(),
-            'recorded_at'   => $this->created_at?->toISOString(),
+            
+            // WHERE
+            'location_gs1'  => $this->traceLocation ? $this->traceLocation->gln : null,
+            'address'       => $this->where_address ?? optional($this->traceLocation)->address_detail,
+            'gps'           => ['lat' => $this->where_lat, 'lng' => $this->where_lng],
 
-            // 5W — KDE đầy đủ
-            'kde'           => $this->kde_data ?? [],
+            // WHO
+            'enterprise'    => optional($this->enterprise)->name,
+            'operator'      => $this->who_name,
 
-            // Index nhanh từ KDE
-            'who'           => $this->who_name,
-            'where'         => $this->where_address,
-            'gps'           => $this->hasGps()
-                ? ['lat' => $this->where_lat, 'lng' => $this->where_lng]
-                : null,
+            // WHAT - OBJECTS
+            'inputs'        => $this->inputBatches->map(fn($b) => [
+                'batch_code' => $b->code,
+                'gtin'       => $b->gtin_cached,
+                'quantity'   => $b->pivot->quantity,
+                'unit'       => $b->pivot->unit
+            ])->toArray(),
+
+            'outputs'       => $this->outputBatches->map(fn($b) => [
+                'batch_code' => $b->code,
+                'gtin'       => $b->gtin_cached,
+                'quantity'   => $b->pivot->quantity,
+                'unit'       => $b->pivot->unit
+            ])->toArray(),
+
+            // WHY & EVIDENCE
             'why'           => $this->why_reason,
-            'note'          => $this->note,
-
-            // Đính kèm
             'attachments'   => $this->attachments ?? [],
-
-            // Địa điểm truy vết — AI(410-417) theo TCVN 13274:2020 Bảng 4
-            // Eager load bằng: $event->load('locations') trước khi gọi hàm này
-            'locations'     => $this->relationLoaded('locations')
-                ? $this->locations->map(fn($loc) => $loc->toIpfsFragment())->values()->toArray()
-                : [],
+            'certifications' => $this->eventCertificates->map(fn($c) => [
+                'type' => optional($c->certificateType)->name,
+                'no'   => $c->reference_no,
+                'result' => $c->result
+            ])->toArray(),
         ];
     }
 }
