@@ -171,6 +171,7 @@ class ProductController extends Controller
         abort_unless($product->enterprise_id === $tenantId, 403);
         $product->load([
             'category',
+            'processes',
             'batches' => fn($q) => $q->withCount('events')->latest(),
         ]);
         return Inertia::render('Products/Show', ['product' => $product]);

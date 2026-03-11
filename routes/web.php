@@ -18,9 +18,11 @@ use App\Http\Controllers\PublicController;
 use App\Http\Controllers\BatchSplitController;
 use App\Http\Controllers\BatchMergeController;
 use App\Http\Controllers\BatchTransferController;
+use App\Http\Controllers\BatchTransformationController;
 use App\Http\Controllers\Api\EpcisController;
 use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\TraceLocationController;
+use App\Http\Controllers\ProductProcessController;
 
 
 
@@ -76,6 +78,37 @@ Route::prefix('v1')->group(function () {
 // IPFS verify — public endpoint cho người tiêu dùng
 Route::get('/verify/ipfs/{cid}', [TraceEventController::class, 'verifyIpfs'])->name('verify.ipfs');
 
+// QR Bước Sản xuất — public scan endpoint (dán trực tiếp lên vùng trồng/kho)
+Route::get('/step/{token}', function (string $token) {
+    $event = \App\Models\TraceEvent::where('event_token', $token)->first();
+    if (! $event) {
+        return \Inertia\Inertia::render('Trace/StepNotFound');
+    }
+    $event->load(['batch.product', 'batch.enterprise']);
+    return \Inertia\Inertia::render('Trace/StepShow', [
+        'event' => [
+            'id'           => $event->id,
+            'event_token'  => $event->event_token,
+            'cte_code'     => $event->cte_code,
+            'event_time'   => optional($event->event_time)->format('d/m/Y H:i'),
+            'who_name'     => $event->who_name,
+            'where_address'=> $event->where_address,
+            'kde_data'     => $event->kde_data,
+            'attachments'  => $event->attachments,
+            'note'         => $event->note,
+            'ipfs_cid'     => $event->ipfs_cid,
+            'ipfs_url'     => $event->ipfs_url,
+            'content_hash' => $event->content_hash,
+            'status'       => $event->status,
+            'batch'        => $event->batch ? [
+                'code'         => $event->batch->code,
+                'product_name' => $event->batch->product?->name ?? $event->batch->product_name,
+                'enterprise'   => ['name' => $event->batch->enterprise?->name],
+            ] : null,
+        ],
+    ]);
+})->name('step.show');
+
 /*
 |--------------------------------------------------------------------------
 | Auth-only (NO tenant scope)
@@ -129,6 +162,12 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])->group(functio
     Route::post('/products/{product}', [ProductController::class, 'update'])->name('products.update');
     Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
     Route::get('/products/{product}', [ProductController::class, 'show'])->name('products.show');
+
+    // ── Product Processes (Quy trình sản xuất theo sản phẩm) ──
+    Route::get('/products/{product}/processes', [ProductProcessController::class, 'index'])->name('products.processes.index');
+    Route::post('/products/{product}/processes/sync', [ProductProcessController::class, 'sync'])->name('products.processes.sync');
+    Route::delete('/products/{product}/processes/{step}', [ProductProcessController::class, 'destroy'])->name('products.processes.destroy');
+
     // ── Batches ───────────────────────────────────────────
     Route::get('/batches', [BatchController::class, 'index'])->name('batches.index');
     Route::post('/batches', [BatchController::class, 'store'])->name('batches.store');
@@ -147,6 +186,12 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])->group(functio
         ->name('batches.merge.show');
     Route::post('/batches/merge', [BatchMergeController::class, 'store'])
         ->name('batches.merge.store');
+
+    // ── Batch Transformation (Chế biến) ──────────────────────
+    Route::get('/batches/transform', [BatchTransformationController::class, 'show'])
+        ->name('batches.transform.show');
+    Route::post('/batches/transform', [BatchTransformationController::class, 'store'])
+        ->name('batches.transform.store');
 
     // ── Batch Transfer ────────────────────────────────────────
     Route::post('/batches/{batch}/transfer', [BatchTransferController::class, 'store'])
@@ -192,6 +237,14 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])->group(functio
     Route::post('/trace-locations/generate-gln', [TraceLocationController::class, 'generateGln'])
         ->name('trace-locations.generate-gln');
 
+    // ── Certificates (Chứng chỉ VietGAP, HACCP, ISO...) ──────────
+    Route::prefix('certificates')->name('certificates.')->group(function () {
+        Route::get('/',                          [CertificateController::class, 'index'])    ->name('index');
+        Route::post('/',                         [CertificateController::class, 'store'])    ->name('store');
+        Route::put('/{certificate}',             [CertificateController::class, 'update'])   ->name('update');
+        Route::delete('/{certificate}',          [CertificateController::class, 'destroy'])  ->name('destroy');
+    });
+
     // ── Vietmap proxy ─────────────────────────────────────
     Route::post('/vietmap/autocomplete', [VietmapController::class, 'autocomplete'])->name('vietmap.autocomplete');
     Route::post('/vietmap/place', [VietmapController::class, 'place'])->name('vietmap.place');
@@ -225,12 +278,6 @@ Route::middleware(['auth', 'verified', 'tenant.ready', 'tenant'])
         Route::get('/cte-templates', [TraceEventController::class, 'getTemplates'])
             ->name('api.cte-templates');
     });
-Route::prefix('certificates')->name('certificates.')->group(function () {
-    Route::get('/',                          [CertificateController::class, 'index'])    ->name('index');
-    Route::post('/',                         [CertificateController::class, 'store'])    ->name('store');
-    Route::put('/{certificate}',             [CertificateController::class, 'update'])   ->name('update');
-    Route::delete('/{certificate}',          [CertificateController::class, 'destroy'])  ->name('destroy');
-});
 
 // API endpoint cho dropdown (dùng trong BatchController)
 Route::get('/api/certificates/list', [CertificateController::class, 'listForBatch'])

@@ -76,12 +76,28 @@ class TraceEventController extends Controller
         $categoryId = $request->query('category_id');
         $batchId    = $request->query('batch_id');
 
-        if ($categoryId) {
+        $templates = collect();
+
+        // 1. Nếu có batchId -> Lấy quy trình riêng của Sản phẩm thuộc Lô đó
+        if ($batchId) {
+            $batch = Batch::with('product.processes')->find($batchId);
+            if ($batch && $batch->product && $batch->product->processes->isNotEmpty()) {
+                $templates = $batch->product->processes->map(fn($p) => (object)[
+                    'id'          => $p->id,
+                    'code'        => $p->cte_code ?? 'step-' . $p->id,
+                    'name_vi'     => $p->name_vi,
+                    'step_order'  => $p->step_order,
+                    'is_required' => $p->is_required,
+                    'kde_schema'  => [], // Có thể mở rộng schema cho từng bước sau
+                ]);
+            }
+        }
+
+        // 2. Fallback về Category Templates nếu chưa có templates từ sản phẩm
+        if ($templates->isEmpty() && $categoryId) {
             $templates = CteTemplate::where('category_id', $categoryId)
                 ->orderBy('step_order')
                 ->get();
-        } else {
-            $templates = collect();
         }
 
         $publishedCodes = [];
@@ -101,7 +117,7 @@ class TraceEventController extends Controller
                 'name_vi'     => $t->name_vi,
                 'step_order'  => $t->step_order,
                 'is_required' => $t->is_required,
-                'kde_schema'  => $t->kde_schema,
+                'kde_schema'  => $t->kde_schema ?? [],
                 'is_done'     => in_array($t->code, $publishedCodes),
             ]),
             'published_codes' => $publishedCodes,

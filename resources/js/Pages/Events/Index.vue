@@ -260,6 +260,41 @@ const viewingEvent = ref(null)
 function openView(ev) { viewingEvent.value = ev }
 function closeView()  { viewingEvent.value = null }
 
+// ── QR Bước sản xuất ─────────────────────────────────────
+function printStepQr(ev) {
+  if (!ev.event_token) {
+    alert('Sự kiện này không có mã QR (thiếu token).');
+    return;
+  }
+  const url = `${window.location.origin}/step/${ev.event_token}`;
+  // Tạo 1 cửa sổ mới để hiện mã QR và in
+  const win = window.open('', '_blank', 'width=400,height=500');
+  win.document.write(`
+    <html>
+      <head>
+        <title>QR Bước: ${getCteName(ev)}</title>
+        <style>
+          body { font-family: sans-serif; text-align: center; padding: 40px; }
+          .label { margin-top: 20px; font-weight: bold; font-size: 18px; }
+          .id { font-family: monospace; color: #666; font-size: 12px; margin-top: 5px; }
+          .qr-img { width: 250px; height: 250px; margin: 20px auto; border: 1px solid #eee; padding: 10px; }
+        </style>
+      </head>
+      <body>
+        <div style="text-transform: uppercase; font-size: 10px; letter-spacing: 2px; color: #999;">AGU TRACEABILITY</div>
+        <div class="label">${getCteName(ev)}</div>
+        <div class="id">Lô: ${ev.batch?.code}</div>
+        <img class="qr-img" src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(url)}" />
+        <div style="font-size: 11px; color: #555;">${url}</div>
+        <div style="margin-top: 30px; border-top: 1px dashed #ccc; padding-top: 20px; font-size: 10px; color: #999;">
+          Dán mã này tại khu vực thực hiện công đoạn sản xuất tương ứng.
+        </div>
+        <script>window.onload = () => { setTimeout(() => window.print(), 500); }<\/script>
+      </body>
+    </html>
+  `);
+}
+
 // ── Helpers ───────────────────────────────────────────────
 function getCteName(ev) {
   if (!ev) return ''
@@ -482,6 +517,11 @@ const nextEvents = () => { if (props.events?.next_page_url) router.visit(props.e
                   <div class="text-xs text-white/40 mt-0.5">{{ formatTime(ev.event_time) }}</div>
                 </div>
                 <div class="flex gap-1.5 flex-wrap">
+                  <button @click="printStepQr(ev)"
+                    class="text-xs px-2.5 py-1 rounded-lg border border-brand-500/30 bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 transition flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 17h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+                    QR Bước
+                  </button>
                   <button @click="openView(ev)"
                     class="text-xs px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 transition">👁 Xem</button>
                   <template v-if="ev.status !== 'published'">

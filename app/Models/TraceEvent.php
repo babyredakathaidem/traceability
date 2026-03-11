@@ -11,6 +11,8 @@ class TraceEvent extends Model
     protected $fillable = [
         'enterprise_id',
         'batch_id',
+        'event_token',  // UUID token riêng để sinh QR cho từng bước
+        'process_step_id', // Liên kết với bước quy trình sản phẩm
         'event_type',   // legacy — giữ lại backward compat
         'cte_code',     // mã CTE chuẩn hoặc 'custom'
         'event_time',

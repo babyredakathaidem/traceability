@@ -14,17 +14,24 @@ import {
     Menu, 
     X,
     Building2,
-    CheckCircle2
+    CheckCircle2,
+    FlaskConical
 } from 'lucide-vue-next'
 
 const page = usePage()
 const isSidebarOpen = ref(true)
 const user = computed(() => page.props.auth?.user)
+const currentPath = ref(typeof window !== 'undefined' ? window.location.pathname : '/')
+
+// Cập nhật currentPath khi Inertia navigate
+router.on('navigate', () => {
+    currentPath.value = window.location.pathname
+})
 
 // Logic nhận diện Super Admin "Thần thánh"
 const isSuperAdmin = computed(() => {
     const u = user.value;
-    const isAtSysRoute = window.location.pathname.includes('/sys');
+    const isAtSysRoute = currentPath.value.includes('/sys');
     const isSuperField = u?.is_super_admin === true || u?.is_super_admin === 1 || u?.is_super_admin === '1';
     return isSuperField || isAtSysRoute;
 })
@@ -53,6 +60,7 @@ const navItems = computed(() => {
         { name: 'Sản phẩm', href: safeRoute('products.index', '/products'), icon: Box },
         { name: 'Lô hàng', href: safeRoute('batches.index', '/batches'), icon: Package },
         { name: 'Sự kiện TRACE', href: safeRoute('events.index', '/events'), icon: Activity },
+        { name: 'Chế biến', href: safeRoute('batches.transform.show', '/batches/transform'), icon: FlaskConical },
     ]
 
     // Menu cho DN
@@ -107,7 +115,7 @@ const navItems = computed(() => {
                     </div>
 
                     <Link v-else :href="item.href" 
-                          :class="[item.href && window.location.pathname.includes(item.href.split('/').pop()) ? 'bg-orange-500/10 text-orange-400 border-l-4 border-orange-500 shadow-[0_0_20px_rgba(255,165,0,0.1)]' : 'text-white/40 hover:bg-white/5 hover:text-white border-l-4 border-transparent']"
+                          :class="[item.href && currentPath.includes(item.href.split('/').pop()) ? 'bg-orange-500/10 text-orange-400 border-l-4 border-orange-500 shadow-[0_0_20px_rgba(255,165,0,0.1)]' : 'text-white/40 hover:bg-white/5 hover:text-white border-l-4 border-transparent']"
                           class="flex items-center gap-4 px-4 py-4 rounded-r-2xl transition-all group">
                         <component :is="item.icon" class="w-6 h-6 min-w-[24px] group-hover:scale-110 transition-transform duration-300" />
                         <span v-if="isSidebarOpen" class="text-sm font-black uppercase tracking-[0.1em] truncate">{{ item.name }}</span>

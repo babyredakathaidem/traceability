@@ -4,7 +4,8 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "all": "concurrently \"php artisan serve\" \"php artisan queue:work\" \"npm run dev\""
     },
     "devDependencies": {
         "@inertiajs/vue3": "^2.0.0",

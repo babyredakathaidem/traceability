@@ -49,6 +49,11 @@ class Product extends Model
         return $this->hasMany(Batch::class);
     }
 
+    public function processes(): HasMany
+    {
+        return $this->hasMany(ProductProcess::class)->orderBy('step_order');
+    }
+
     public function isActive(): bool
     {
         return $this->status === 'active';

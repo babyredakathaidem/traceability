@@ -6,8 +6,10 @@ use App\Models\Batch;
 use App\Models\BatchLineage;
 use App\Models\Certificate;
 use App\Models\Product;
+use App\Models\TraceEvent;
 use App\Services\QrCodeService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class BatchController extends Controller
@@ -154,6 +156,25 @@ class BatchController extends Controller
                 ->pluck('id');
 
             $batch->certificates()->sync($validCertIds);
+        }
+
+        // ── AUTO-GENERATE TraceEvents cho từng bước trong quy trình ──
+        $product->load('processes');
+        foreach ($product->processes as $step) {
+            TraceEvent::create([
+                'enterprise_id'   => $tenantId,
+                'batch_id'        => $batch->id,
+                'process_step_id' => $step->id,
+                'event_token'     => (string) Str::uuid(),
+                'cte_code'        => $step->cte_code ?? 'custom',
+                'event_type'      => $step->name_vi,
+                'status'          => 'draft',
+                // Khởi tạo KDE data cơ bản
+                'kde_data'        => [
+                    'step_name'   => $step->name_vi,
+                    'is_required' => $step->is_required,
+                ],
+            ]);
         }
 
         // Đảm bảo QR codes tồn tại (bao gồm GS1 Digital Link)
