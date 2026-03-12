@@ -78,54 +78,36 @@ class TraceEventController extends Controller
 
         $templates = collect();
 
-        // 1. Nếu có batchId -> Lấy quy trình riêng của Sản phẩm thuộc Lô đó
-        if ($batchId) {
-            $batch = Batch::with('product.processes')->find($batchId);
-            if ($batch && $batch->product && $batch->product->processes->isNotEmpty()) {
-                $templates = $batch->product->processes->map(fn($p) => (object)[
-                    'id'          => $p->id,
-                    'code'        => $p->cte_code ?? 'step-' . $p->id,
-                    'name_vi'     => $p->name_vi,
-                    'step_order'  => $p->step_order,
-                    'is_required' => $p->is_required,
-                    'kde_schema'  => [], // Có thể mở rộng schema cho từng bước sau
-                ]);
-            }
-        }
-
-        // 2. Fallback về Category Templates nếu chưa có templates từ sản phẩm
-        if ($templates->isEmpty() && $categoryId) {
+        if ($categoryId) {
             $templates = CteTemplate::where('category_id', $categoryId)
                 ->orderBy('step_order')
                 ->get();
         }
 
-        $publishedCodes = [];
+        // Mark is_done cho từng template nếu có batch_id
+        $doneCodes = [];
         if ($batchId) {
-            $publishedCodes = TraceEvent::whereHas('inputBatches', fn($q) => $q->where('batches.id', $batchId))
+            $doneCodes = TraceEvent::whereHas('inputBatches', fn($q) => $q->where('batches.id', $batchId))
                 ->where('status', 'published')
-                ->whereNotNull('cte_code')
                 ->pluck('cte_code')
                 ->unique()
-                ->toArray();
+                ->all();
         }
 
         return response()->json([
-            'templates'      => $templates->map(fn($t) => [
+            'templates' => $templates->map(fn($t) => [
                 'id'          => $t->id,
                 'code'        => $t->code,
                 'name_vi'     => $t->name_vi,
                 'step_order'  => $t->step_order,
                 'is_required' => $t->is_required,
                 'kde_schema'  => $t->kde_schema ?? [],
-                'is_done'     => in_array($t->code, $publishedCodes),
+                'is_done'     => in_array($t->code, $doneCodes),
             ]),
-            'published_codes' => $publishedCodes,
-            'has_templates'   => $templates->isNotEmpty(),
         ]);
     }
 
-    // ── store (draft) ─────────────────────────────────────
+    // ── store ──────────────────────────────────────────────
 
     public function store(Request $request)
     {
@@ -148,14 +130,9 @@ class TraceEventController extends Controller
             ->where('enterprise_id', $tenantId)
             ->firstOrFail();
 
-        if ($batch->isRecalled()) {
-            return back()->withErrors(['batch' => 'Lô này đang bị thu hồi, không thể thêm sự kiện mới.']);
-        }
-
         $event = TraceEvent::create([
             'enterprise_id' => $tenantId,
             'cte_code'      => $data['cte_code'],
-            'event_type'    => $data['cte_code'],
             'event_time'    => $data['event_time'],
             'kde_data'      => $data['kde_data'],
             'who_name'      => $data['who_name'] ?? null,
@@ -166,49 +143,13 @@ class TraceEventController extends Controller
             'note'          => $data['note'] ?? null,
             'status'        => 'draft',
         ]);
-        // Liên kết lô với event qua pivot (batch_id đã bị xóa khỏi trace_events)
-        $event->inputBatches()->attach($batch->id);
 
-        return back()->with('success', 'Đã lưu sự kiện (draft). Kiểm tra lại rồi publish lên IPFS.');
-    }
-
-    // ── uploadAttachment ──────────────────────────────────
-
-    public function uploadAttachment(Request $request, TraceEvent $traceEvent)
-    {
-        $this->assertTenant($request, $traceEvent);
-
-        if ($traceEvent->isPublished()) {
-            return response()->json(['error' => 'Sự kiện đã publish, không thể thêm đính kèm.'], 403);
-        }
-
-        $request->validate([
-            'file' => 'required|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
+        $event->inputBatches()->attach($batch->id, [
+            'quantity' => $batch->current_quantity,
+            'unit'     => $batch->unit,
         ]);
 
-        $file     = $request->file('file');
-        $content  = file_get_contents($file->getRealPath());
-        $filename = $file->getClientOriginalName();
-        $mime     = $file->getMimeType();
-
-        $result = $this->ipfs->uploadFile($content, $filename, $mime);
-
-        if (!$result) {
-            return response()->json(['error' => 'Upload IPFS thất bại.'], 500);
-        }
-
-        $attachments   = $traceEvent->attachments ?? [];
-        $attachments[] = [
-            'cid'       => $result['cid'],
-            'url'       => $result['url'],
-            'name'      => $filename,
-            'mime_type' => $mime,
-            'mock'      => $result['mock'],
-        ];
-
-        $traceEvent->update(['attachments' => $attachments]);
-
-        return response()->json(['attachment' => end($attachments)]);
+        return back()->with('success', 'Đã tạo sự kiện.');
     }
 
     // ── update ─────────────────────────────────────────────
@@ -255,20 +196,6 @@ class TraceEventController extends Controller
 
     // ── publish → IPFS + Hyperledger Fabric ───────────────
 
-    /**
-     * POST /events/{traceEvent}/publish
-     *
-     * Luồng dual-immutability:
-     *  1. Build payload + SHA-256 content hash
-     *  2. Upload JSON lên IPFS (Pinata) → CID (content-addressed)
-     *  3. Ghi CID + hash lên Hyperledger Fabric → tx_hash (tamper-evident ledger)
-     *  4. Lưu DB: status=published, ipfs_cid, tx_hash, content_hash
-     *
-     * Non-blocking design:
-     *  - Nếu Fabric gateway timeout/lỗi → vẫn publish thành công (IPFS đã OK)
-     *  - tx_hash = null được phép, ghi log warning để retry sau
-     *  - Không block UX vì Fabric network có thể chậm
-     */
     public function publish(Request $request, TraceEvent $traceEvent)
     {
         $traceEvent->loadMissing('inputBatches.product.category', 'inputBatches.enterprise');
@@ -311,8 +238,7 @@ class TraceEventController extends Controller
 
             if ($fabricResult['success']) {
                 $fabricOk = true;
-                // Gateway trả txId theo nhiều tên khác nhau
-                $txHash = $fabricResult['data']['txId']
+                $txHash   = $fabricResult['data']['txId']
                     ?? $fabricResult['data']['tx_hash']
                     ?? $fabricResult['data']['transactionId']
                     ?? null;
@@ -324,18 +250,16 @@ class TraceEventController extends Controller
                 ]);
             } else {
                 $fabricError = $fabricResult['error'] ?? 'unknown';
-                Log::warning('[Publish] Fabric failed — non-blocking, continuing', [
+                Log::warning('[Publish] Fabric failed — non-blocking', [
                     'event_id' => $traceEvent->id,
                     'error'    => $fabricError,
-                    'cid'      => $ipfsResult['cid'],
                 ]);
             }
         } catch (\Throwable $e) {
             $fabricError = $e->getMessage();
             Log::error('[Publish] Fabric exception — non-blocking', [
-                'event_id' => $traceEvent->id,
-                'exception'=> $e->getMessage(),
-                'cid'      => $ipfsResult['cid'],
+                'event_id'  => $traceEvent->id,
+                'exception' => $e->getMessage(),
             ]);
         }
 
@@ -345,35 +269,75 @@ class TraceEventController extends Controller
             'content_hash' => $contentHash,
             'ipfs_cid'     => $ipfsResult['cid'],
             'ipfs_url'     => $ipfsResult['url'],
-            'tx_hash'      => $txHash,   // null nếu Fabric lỗi
+            'tx_hash'      => $txHash,
             'published_at' => now(),
             'published_by' => $request->user()->id,
         ]);
 
-        // ── 5. Gửi email xác nhận ──────────────────────────
+        // ── 5. Email ───────────────────────────────────────
         Mail::to($request->user()->email)->queue(
             new EventPublishedMail($traceEvent->fresh(['inputBatches.product']))
         );
 
-        // ── 6. Flash message ───────────────────────────────
+        // ── 6. Flash ───────────────────────────────────────
         $ipfsMock = $ipfsResult['mock'] ? ' [MOCK]' : '';
 
         if ($fabricOk && $txHash) {
             $shortTx = substr($txHash, 0, 16) . '...';
-            $msg = " Publish thành công{$ipfsMock}! "
-                . "IPFS CID: " . substr($ipfsResult['cid'], 0, 12) . "... · "
-                . "Fabric TX: {$shortTx}";
+            $msg     = "✅ Publish thành công{$ipfsMock}! IPFS: "
+                . substr($ipfsResult['cid'], 0, 12) . "... · Fabric TX: {$shortTx}";
         } elseif ($fabricOk) {
-            $msg = "Publish thành công{$ipfsMock}! IPFS + Fabric OK.";
+            $msg = "✅ Publish thành công{$ipfsMock}! IPFS + Fabric OK.";
         } else {
-            $msg = " Publish IPFS thành công{$ipfsMock}! CID: " . substr($ipfsResult['cid'], 0, 16)
-                . "... Fabric chưa ghi được (tx_hash sẽ được cập nhật sau).";
+            $msg = "✅ Publish IPFS thành công{$ipfsMock}! CID: "
+                . substr($ipfsResult['cid'], 0, 16)
+                . "... Fabric chưa ghi được (sẽ retry sau).";
         }
 
         return back()->with('success', $msg);
     }
 
-    // ── verifyIpfs (public endpoint) ──────────────────────
+    // ── uploadAttachment ──────────────────────────────────
+
+    public function uploadAttachment(Request $request, TraceEvent $traceEvent)
+    {
+        $this->assertTenant($request, $traceEvent);
+
+        if ($traceEvent->isPublished()) {
+            return response()->json(['error' => 'Sự kiện đã publish, không thể thêm đính kèm.'], 403);
+        }
+
+        $request->validate([
+            'file' => 'required|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
+        ]);
+
+        $file     = $request->file('file');
+        $content  = file_get_contents($file->getRealPath());
+        $filename = $file->getClientOriginalName();
+        $mime     = $file->getMimeType();
+
+        $result = $this->ipfs->uploadFile($content, $filename, $mime);
+
+        if (!$result) {
+            return response()->json(['error' => 'Upload IPFS thất bại.'], 500);
+        }
+
+        $attachments   = $traceEvent->attachments ?? [];
+        $attachments[] = [
+            'cid'       => $result['cid'],
+            'url'       => $result['url'],
+            'name'      => $filename,
+            'mime_type' => $mime,
+            'mock'      => $result['mock'],
+        ];
+
+        $traceEvent->update(['attachments' => $attachments]);
+
+        return response()->json(['attachment' => end($attachments)]);
+    }
+
+    // ── verifyIpfs (backward compat — JSON endpoint) ──────
+    // Kept for backward compat nếu có link cũ đang chạy
 
     public function verifyIpfs(Request $request, string $cid)
     {
@@ -392,7 +356,141 @@ class TraceEventController extends Controller
             'expected_hash' => $result['expected_hash'],
             'actual_hash'   => $result['actual_hash'],
             'mock'          => $result['mock'],
+            'notice'        => 'Đây là endpoint cũ. Dùng /verify/integrity/{event_id} để xác minh đầy đủ 3 lớp.',
         ]);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // verifyIntegrity — PUBLIC endpoint xác minh 3 lớp
+    //
+    // Tam giác xác minh:
+    //   Layer 1 — Fabric    : đọc content_hash từ Fabric ledger (bất biến)
+    //   Layer 2 — IPFS      : fetch IPFS → re-hash → so với Fabric hash
+    //   Layer 3 — DB/Display: DB.content_hash → so với Fabric hash
+    //
+    // Chỉ khi cả 3 khớp → dữ liệu toàn vẹn.
+    // ════════════════════════════════════════════════════════════════
+
+    
+     public function verifyIntegrity(Request $request, int $id)
+    {
+        $event = TraceEvent::withoutGlobalScopes()
+            ->with(['inputBatches:id,code,product_name,enterprise_id', 'inputBatches.enterprise:id,name,code'])
+            ->find($id);
+ 
+        if (!$event || $event->status !== 'published') {
+            return response()->json([
+                'error'   => 'Sự kiện không tồn tại hoặc chưa được publish.',
+                'verdict' => 'error',
+            ], 404);
+        }
+ 
+        // ── Layer 1: Hyperledger Fabric ────────────────────
+        $fabricRecord = $this->blockchain->getEventRecord((string) $event->id);
+        $fabricMock   = $fabricRecord['mock'];
+        $fabricFound  = $fabricRecord['found'];
+        $fabricHash   = $fabricRecord['content_hash'];
+ 
+        // Nếu Fabric mock/missing → fallback DB.content_hash
+        $groundTruthHash = $fabricFound ? $fabricHash : $event->content_hash;
+ 
+        $fabricStatus = match (true) {
+            $fabricMock  => 'mock',
+            $fabricFound => 'found',
+            default      => 'missing',
+        };
+ 
+        // ── Layer 2: IPFS ──────────────────────────────────
+        $ipfsValid   = false;
+        $ipfsHash    = null;
+        $ipfsFetched = false;
+        $ipfsMock    = false;
+ 
+        if ($event->ipfs_cid && $groundTruthHash) {
+            $ipfsResult  = $this->ipfs->verify($event->ipfs_cid, $groundTruthHash);
+            $ipfsFetched = $ipfsResult['fetched'];
+            $ipfsHash    = $ipfsResult['actual_hash'];
+            $ipfsValid   = $ipfsResult['valid'];
+            $ipfsMock    = $ipfsResult['mock'];
+        }
+ 
+        // ── Layer 3: Database ──────────────────────────────
+        $dbHash  = $event->content_hash;
+        $dbValid = $groundTruthHash && $dbHash && hash_equals($groundTruthHash, $dbHash);
+ 
+        // ── Verdict ────────────────────────────────────────
+        $verdict = $this->resolveVerdict(
+            fabricMock:  $fabricMock,
+            fabricFound: $fabricFound,
+            ipfsFetched: $ipfsFetched,
+            ipfsValid:   $ipfsValid,
+            dbValid:     $dbValid,
+        );
+ 
+        return response()->json([
+            'verdict' => $verdict,
+ 
+            'fabric' => [
+                'status'        => $fabricStatus,
+                'mock'          => $fabricMock,
+                'found'         => $fabricFound,
+                'hash'          => $fabricHash,
+                'recorded_by'   => $fabricRecord['recorded_by'],
+                'timestamp'     => $fabricRecord['timestamp'],
+                'fallback_used' => !$fabricFound,
+            ],
+ 
+            'ipfs' => [
+                'cid'     => $event->ipfs_cid,
+                'fetched' => $ipfsFetched,
+                'hash'    => $ipfsHash,
+                'valid'   => $ipfsValid,
+                'mock'    => $ipfsMock,
+            ],
+ 
+            'db' => [
+                'hash'  => $dbHash,
+                'valid' => $dbValid,
+            ],
+ 
+            'ground_truth_source' => $fabricFound ? 'fabric' : 'db_fallback',
+            'ground_truth_hash'   => $groundTruthHash,
+ 
+            'event' => [
+                'id'           => $event->id,
+                'event_code'   => $event->event_code,
+                'cte_code'     => $event->cte_code,
+                'published_at' => optional($event->published_at)->format('d/m/Y H:i'),
+                'tx_hash'      => $event->tx_hash,
+                'ipfs_cid'     => $event->ipfs_cid,
+                'ipfs_url'     => $event->ipfs_url,
+            ],
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────
+
+    private function resolveVerdict(
+        bool $fabricMock,
+        bool $fabricFound,
+        bool $ipfsFetched,
+        bool $ipfsValid,
+        bool $dbValid,
+    ): string {
+        // Không có IPFS → không thể verify
+        if (!$ipfsFetched) return 'ipfs_unavailable';
+
+        // IPFS content bị tamper (hash không khớp với ground truth)
+        if (!$ipfsValid) return 'tampered_ipfs';
+
+        // DB bị sửa sau publish (hiển thị dữ liệu giả cho người dùng)
+        if (!$dbValid) return 'tampered_db';
+
+        // Tất cả hợp lệ nhưng Fabric mock → valid_no_fabric
+        if ($fabricMock || !$fabricFound) return 'valid_no_fabric';
+
+        // Tất cả hợp lệ + Fabric xác nhận
+        return 'valid';
     }
 
     // ── Private ────────────────────────────────────────────

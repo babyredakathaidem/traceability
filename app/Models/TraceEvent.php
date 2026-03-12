@@ -170,7 +170,7 @@ class TraceEvent extends Model
      */
     public static function generateEventCode(string $enterpriseCode, string $cteCode, int $seq): string
     {
-        $cte = strtoupper(substr($cteCode, 0, 7));
+        $cte = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $cteCode), 0, 7));
         $date = Carbon::now()->format('Ym');
         $seqStr = str_pad($seq, 3, '0', STR_PAD_LEFT);
 
@@ -183,21 +183,31 @@ class TraceEvent extends Model
     public function toIpfsPayload(): array
     {
         // Load relations nếu chưa load
-        $this->loadMissing(['inputBatches', 'outputBatches', 'traceLocation', 'enterprise']);
+        $this->loadMissing([
+            'inputBatches',
+            'outputBatches',
+            'traceLocation',
+            'enterprise',
+            'eventCertificates.certificate' // Lấy đúng qua relation certificate
+        ]);
+
+        $gs1Service = app(\App\Services\GS1Service::class);
 
         return [
             'system'        => 'AGU Traceability',
             'version'       => '2.0',
             'tcvn_ref'      => 'TCVN 12850:2019',
             'event_code'    => $this->event_code,
+            'ai251'         => "(251){$this->event_code}",
+            'ai400'         => $this->gs1_document_ref ? "(400){$this->gs1_document_ref}" : null,
             'category'      => self::CATEGORY_LABELS[$this->event_category] ?? $this->event_category,
             'cte_code'      => $this->cte_code,
-            
+
             // WHEN
             'event_time'    => optional($this->event_time)->toISOString(),
-            
+
             // WHERE
-            'location_gs1'  => $this->traceLocation ? $this->traceLocation->gln : null,
+            'location_gln'  => $this->traceLocation ? $this->traceLocation->gln : null,
             'address'       => $this->where_address ?? optional($this->traceLocation)->address_detail,
             'gps'           => ['lat' => $this->where_lat, 'lng' => $this->where_lng],
 
@@ -208,25 +218,38 @@ class TraceEvent extends Model
             // WHAT - OBJECTS
             'inputs'        => $this->inputBatches->map(fn($b) => [
                 'batch_code' => $b->code,
-                'gtin'       => $b->gtin_cached,
+                'gtin'       => $b->gtin_cached ?? $b->product?->gtin,
                 'quantity'   => $b->pivot->quantity,
-                'unit'       => $b->pivot->unit
+                'unit'       => $b->pivot->unit,
+                'identifiers'=> $gs1Service->buildIdentifiers(
+                    $b->gtin_cached ?? $b->product?->gtin ?? '',
+                    $b->code,
+                    $this->traceLocation ? $this->traceLocation->gln : null,
+                    $b->expiry_date?->format('Y-m-d')
+                ),
             ])->toArray(),
 
             'outputs'       => $this->outputBatches->map(fn($b) => [
                 'batch_code' => $b->code,
-                'gtin'       => $b->gtin_cached,
+                'gtin'       => $b->gtin_cached ?? $b->product?->gtin,
                 'quantity'   => $b->pivot->quantity,
-                'unit'       => $b->pivot->unit
+                'unit'       => $b->pivot->unit,
+                'identifiers'=> $gs1Service->buildIdentifiers(
+                    $b->gtin_cached ?? $b->product?->gtin ?? '',
+                    $b->code,
+                    $this->traceLocation ? $this->traceLocation->gln : null,
+                    $b->expiry_date?->format('Y-m-d')
+                ),
             ])->toArray(),
 
             // WHY & EVIDENCE
-            'why'           => $this->why_reason,
-            'attachments'   => $this->attachments ?? [],
+            'why'            => $this->why_reason,
+            'attachments'    => $this->attachments ?? [],
             'certifications' => $this->eventCertificates->map(fn($c) => [
-                'type' => optional($c->certificateType)->name,
-                'no'   => $c->reference_no,
-                'result' => $c->result
+                'type'         => optional($c->certificate)->name ?? 'Unknown Certificate',
+                'organization' => optional($c->certificate)->organization,
+                'no'           => $c->reference_no,
+                'result'       => $c->result
             ])->toArray(),
         ];
     }

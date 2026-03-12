@@ -251,7 +251,9 @@ class ObservationEventController extends Controller
     {
         $yearMonth = now()->format('Ym');
         $cteUpper  = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $cteCode), 0, 7));
-        $prefix    = "EVT-{$cteUpper}-{$yearMonth}-";
+        
+        $enterpriseCode = DB::table('enterprises')->where('id', $tenantId)->value('code') ?? 'UNK';
+        $prefix    = "EVT-{$enterpriseCode}-{$cteUpper}-{$yearMonth}-";
 
         // Tìm số thứ tự lớn nhất trong tháng theo prefix
         $last = DB::table('trace_events')

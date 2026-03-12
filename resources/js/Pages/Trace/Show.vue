@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { Head } from '@inertiajs/vue3'
+import VerifyIntegrityBtn from '@/Components/VerifyIntegrityBtn.vue'
 
 // ── Props từ LineageService::formatEventForPublic() + formatBatch() ──
 const props = defineProps({
@@ -509,18 +510,12 @@ function cteName(ev) {
                   </a>
                 </div>
 
-                <div v-if="event.ipfs_cid" class="flex items-center gap-3">
-                  <div class="flex flex-col items-end">
-                    <span class="text-[8px] text-white/20 uppercase font-black leading-none">IPFS</span>
-                    <code class="text-[9px] font-mono text-green-400/60 font-bold">#{{ shortCid(event.ipfs_cid) }}</code>
-                  </div>
-                  <a :href="`/verify/ipfs/${event.ipfs_cid}?hash=${event.content_hash}`"
-                    target="_blank"
-                    class="text-[10px] font-black text-black bg-green-500 px-3 py-1.5 rounded-xl shadow-lg shadow-green-500/30 hover:bg-green-400 active:scale-95 transition-all uppercase tracking-tighter">
-                    Xác thực
-                  </a>
-                </div>
-              </div>
+                <VerifyIntegrityBtn
+                  v-if="event.ipfs_cid"
+                  :event-id="event.id"
+                  :ipfs-cid="event.ipfs_cid"
+                  :short-cid-fn="shortCid"
+                />
 
             </div>
           </div>

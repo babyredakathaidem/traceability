@@ -162,15 +162,16 @@ class TransformationEventController extends Controller
             ]);
 
             // Load relation cần thiết để cache GS1
-            $outputBatch->load('product');
+            $outputBatch->load('product', 'enterprise');
             $gtin = $this->qrService->resolveGtin($outputBatch);
+            
+            // Lấy event để buildFullLabel (lấy AI 251 và location GLN)
+            // Vì event chưa được lưu relation với batch mới tạo, ta pass explicit event vào GS1Service
+            $fullLabel = $this->gs1Service->buildFullLabel($outputBatch, $event);
+
             $outputBatch->update([
                 'gtin_cached'   => $gtin,
-                'gs1_128_label' => $this->gs1Service->buildGS1_128(
-                    $gtin,
-                    $outputBatch->code,
-                    $outputBatch->expiry_date?->format('ymd')
-                ),
+                'gs1_128_label' => $fullLabel['gs1_128'],
             ]);
 
             // f. Gắn output batch vào pivot event_output_batches
@@ -283,13 +284,15 @@ class TransformationEventController extends Controller
     // ── Private helpers ───────────────────────────────────
 
     /**
-     * Sinh event_code: EVT-{CTE_7}-{YYYYMM}-{SEQ3}
+     * Sinh event_code: EVT-{ENT_CODE}-{CTE_7}-{YYYYMM}-{SEQ3}
      */
     private function generateEventCode(int $tenantId, string $cteCode): string
     {
         $yearMonth = now()->format('Ym');
         $cteUpper  = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $cteCode), 0, 7));
-        $prefix    = "EVT-{$cteUpper}-{$yearMonth}-";
+
+        $enterpriseCode = DB::table('enterprises')->where('id', $tenantId)->value('code') ?? 'UNK';
+        $prefix    = "EVT-{$enterpriseCode}-{$cteUpper}-{$yearMonth}-";
 
         $last = DB::table('trace_events')
             ->where('enterprise_id', $tenantId)

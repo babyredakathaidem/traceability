@@ -37,7 +37,7 @@ class TraceLocationController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        return Inertia::render('TraceLocations/Index', [
+        return Inertia::render('TraceLocation/Index', [
             'locations' => $locations,
             'ai_labels' => TraceLocation::AI_LABELS,
             'filters'   => ['ai_type' => $aiType, 'q' => $q],

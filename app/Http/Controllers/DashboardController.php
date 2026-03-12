@@ -20,6 +20,7 @@ class DashboardController extends Controller
 
         // ── Tổng quan ─────────────────────────────────────────────
         $totalProducts = Product::where('enterprise_id', $tenantId)->count();
+        $totalLocations = \App\Models\TraceLocation::where('enterprise_id', $tenantId)->count();
 
         $batchStats = Batch::where('enterprise_id', $tenantId)
             ->selectRaw("
@@ -163,6 +164,7 @@ class DashboardController extends Controller
         return Inertia::render('Dashboard', [
             'stats' => [
                 'products' => $totalProducts,
+                'locations_count' => $totalLocations,
                 'batches'  => [
                     'total'    => (int) ($batchStats->total ?? 0),
                     'active'   => (int) ($batchStats->active ?? 0),

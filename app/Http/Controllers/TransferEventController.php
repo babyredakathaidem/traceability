@@ -336,15 +336,14 @@ class TransferEventController extends Controller
             ]);
 
             // 3. Cache GS1 labels
-            $batch->load('product');
+            $batch->load('product', 'enterprise');
             $gtin = $this->qrCodeService->resolveGtin($batch);
+
+            $fullLabel = $this->gs1Service->buildFullLabel($batch, $event);
+
             $batch->update([
                 'gtin_cached'   => $gtin,
-                'gs1_128_label' => $this->gs1Service->buildGS1_128(
-                    $gtin,
-                    $batch->code,
-                    $batch->expiry_date?->format('ymd')
-                ),
+                'gs1_128_label' => $fullLabel['gs1_128'],
             ]);
 
             // 4. Gắn vào pivot event_output_batches

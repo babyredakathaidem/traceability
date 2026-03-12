@@ -160,15 +160,18 @@ class BatchController extends Controller
 
         // ── AUTO-GENERATE TraceEvents cho từng bước trong quy trình ──
         $product->load('processes');
+        $enterpriseCode = \App\Models\Enterprise::find($tenantId)->code ?? 'ENT';
+        
         foreach ($product->processes as $step) {
             $event = TraceEvent::create([
                 'enterprise_id'   => $tenantId,
+                'event_category'  => TraceEvent::CAT_OBSERVATION,
+                'event_code'      => TraceEvent::generateEventCode($enterpriseCode, $step->cte_code ?? 'STEP', $this->nextEventSeq($tenantId)),
                 'process_step_id' => $step->id,
                 'event_token'     => (string) Str::uuid(),
                 'cte_code'        => $step->cte_code ?? 'custom',
                 'event_type'      => $step->name_vi,
                 'status'          => 'draft',
-                // Khởi tạo KDE data cơ bản
                 'kde_data'        => [
                     'step_name'   => $step->name_vi,
                     'is_required' => $step->is_required,
@@ -431,5 +434,23 @@ class BatchController extends Controller
                 'gtin' => $batch->product->gtin,
             ] : null,
         ];
+    }
+
+    private function nextBatchSeq(int $enterpriseId): int
+    {
+        return \Illuminate\Support\Facades\DB::table('batches')
+            ->where('enterprise_id', $enterpriseId)
+            ->whereYear('created_at', now()->year)
+            ->whereMonth('created_at', now()->month)
+            ->count() + 1;
+    }
+
+    private function nextEventSeq(int $enterpriseId): int
+    {
+        return \Illuminate\Support\Facades\DB::table('trace_events')
+            ->where('enterprise_id', $enterpriseId)
+            ->whereYear('created_at', now()->year)
+            ->whereMonth('created_at', now()->month)
+            ->count() + 1;
     }
 }

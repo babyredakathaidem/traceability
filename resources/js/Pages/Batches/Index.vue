@@ -7,15 +7,15 @@ import UiButton from '@/Components/ui/UiButton.vue'
 import UiInput  from '@/Components/ui/UiInput.vue'
 import UiTable  from '@/Components/ui/UiTable.vue'
 import UiModal  from '@/Components/ui/UiModal.vue'
-import { 
-  PencilSquareIcon, 
-  QrCodeIcon, 
-  ScissorsIcon, 
-  TruckIcon, 
-  ExclamationTriangleIcon, 
+import {
+  PencilSquareIcon,
+  QrCodeIcon,
+  ScissorsIcon,
+  TruckIcon,
+  ExclamationTriangleIcon,
   CheckCircleIcon,
   TrashIcon,
-  ArchiveBoxIcon
+  ArchiveBoxIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -41,31 +41,33 @@ const PREFIX_MAP = {
 }
 
 const headers = [
-  { key: 'code',         label: 'Mã lô',       class: 'w-44' },
+  { key: 'code',         label: 'Mã lô',      class: 'w-44' },
   { key: 'product_name', label: 'Sản phẩm' },
-  { key: 'certs',        label: 'Chứng chỉ',   class: 'w-52' },
-  { key: 'quantity',     label: 'Số lượng',    class: 'w-32' },
-  { key: 'status',       label: 'Trạng thái',  class: 'w-36' },
-  { key: 'events',       label: 'Sự kiện',     class: 'w-20' },
-  { key: 'actions',      label: 'Thao tác',    class: 'w-52' },
+  { key: 'certs',        label: 'Chứng chỉ',  class: 'w-52' },
+  { key: 'quantity',     label: 'Số lượng',   class: 'w-32' },
+  { key: 'status',       label: 'Trạng thái', class: 'w-36' },
+  { key: 'events',       label: 'Sự kiện',    class: 'w-20' },
+  { key: 'actions',      label: 'Thao tác',   class: 'w-52' },
 ]
 
 const statusLabel = (s) => ({
-  active:   'Hoạt động',
-  completed:'Hoàn thành',
-  recalled: 'Thu hồi',
-  split:    'Đã tách',
-  consumed: 'Đã dùng',
-  received: 'Đã nhận',
+  active:    'Hoạt động',
+  completed: 'Hoàn thành',
+  recalled:  'Thu hồi',
+  split:     'Đã tách',
+  consumed:  'Đã dùng',
+  received:  'Đã nhận',
+  transferred: 'Đã chuyển',
 }[s] ?? s)
 
 const statusCls = (s) => ({
-  active:   'text-green-400',
-  completed:'text-white/50',
-  recalled: 'text-red-400',
-  split:    'text-amber-400',
-  consumed: 'text-white/30',
-  received: 'text-blue-400',
+  active:    'text-green-400',
+  completed: 'text-white/50',
+  recalled:  'text-red-400',
+  split:     'text-amber-400',
+  consumed:  'text-white/30',
+  received:  'text-blue-400',
+  transferred: 'text-purple-400',
 }[s] ?? 'text-white/50')
 
 const batchTypeLabel = (t) => ({
@@ -105,7 +107,7 @@ function toggleCreateCert(certId) {
   else createForm.certificate_ids.push(certId)
 }
 
-const submitCreate = () => {
+function submitCreate() {
   createForm.post(route('batches.store'), {
     onSuccess: () => { showCreate.value = false; createForm.reset() },
   })
@@ -126,11 +128,11 @@ const editForm = useForm({
 
 function openEdit(b) {
   editing.value            = b
-  editForm.description     = b.description ?? ''
+  editForm.description     = b.description     ?? ''
   editForm.production_date = b.production_date ?? ''
-  editForm.expiry_date     = b.expiry_date ?? ''
-  editForm.quantity        = b.quantity ?? ''
-  editForm.unit            = b.unit ?? ''
+  editForm.expiry_date     = b.expiry_date     ?? ''
+  editForm.quantity        = b.quantity        ?? ''
+  editForm.unit            = b.unit            ?? ''
   editForm.certificate_ids = b.certificates?.map(c => c.id) ?? []
   showEdit.value           = true
 }
@@ -141,7 +143,7 @@ function toggleEditCert(certId) {
   else editForm.certificate_ids.push(certId)
 }
 
-const submitEdit = () => {
+function submitEdit() {
   if (!editing.value) return
   editForm.put(route('batches.update', editing.value.id), {
     onSuccess: () => { showEdit.value = false; editing.value = null },
@@ -149,17 +151,18 @@ const submitEdit = () => {
 }
 
 // ── Delete ────────────────────────────────────────────────
-const removeBatch = (b) => {
+function removeBatch(b) {
   if (!confirm(`Xóa lô "${b.code}"?`)) return
   router.delete(route('batches.destroy', b.id))
 }
 
 // ── Recall ────────────────────────────────────────────────
-const showRecall    = ref(false)
-const showResolve   = ref(false)
-const recalling     = ref(null)
-const recallForm    = useForm({ reason: '', notice_content: '' })
-const resolveForm   = useForm({ resolved_note: '' })
+const showRecall  = ref(false)
+const showResolve = ref(false)
+const recalling   = ref(null)
+
+const recallForm  = useForm({ reason: '', notice_content: '' })
+const resolveForm = useForm({ resolved_note: '' })
 
 function openRecall(b) {
   recalling.value = b
@@ -169,7 +172,7 @@ function openRecall(b) {
 
 function submitRecall() {
   recallForm.post(route('batches.recall.store', recalling.value.id), {
-    onSuccess: () => { showRecall.value = false; recalling.value = null }
+    onSuccess: () => { showRecall.value = false; recalling.value = null },
   })
 }
 
@@ -181,7 +184,7 @@ function openResolve(b) {
 
 function submitResolve() {
   resolveForm.patch(route('batches.recall.resolve', recalling.value.id), {
-    onSuccess: () => { showResolve.value = false; recalling.value = null }
+    onSuccess: () => { showResolve.value = false; recalling.value = null },
   })
 }
 
@@ -199,18 +202,20 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
   <div class="space-y-6">
 
     <!-- Header -->
-    <div class="rounded-2xl border border-glass bg-black/40 p-6 flex flex-wrap items-center justify-between gap-4" data-aos="fade-right">
+    <div class="rounded-2xl border border-glass bg-black/40 p-6 flex flex-wrap items-center justify-between gap-4"
+      data-aos="fade-right">
       <div>
         <div class="text-brand-300 text-sm font-semibold">Doanh nghiệp</div>
         <div class="text-2xl font-bold mt-1 text-white/90">Quản lý lô hàng</div>
         <div class="text-white/50 text-sm mt-1">Mỗi lô gắn với sản phẩm, mã lô tự sinh theo danh mục.</div>
       </div>
       <div class="flex items-center gap-3 flex-wrap">
-        <a :href="route('batch-transfers.inbox')">
-          <UiButton variant="outline"> Nhận Lô</UiButton>
+        <!-- ✅ FIX: đổi route('batch-transfers.inbox') → route('events.transfer.pending') -->
+        <a :href="route('events.transfer.pending')">
+          <UiButton variant="outline">📥 Nhận Lô</UiButton>
         </a>
         <a :href="route('batches.merge.show')">
-          <UiButton variant="outline"> Gộp lô</UiButton>
+          <UiButton variant="outline">⊕ Gộp lô</UiButton>
         </a>
         <UiButton @click="showCreate = true">+ Tạo lô mới</UiButton>
       </div>
@@ -222,209 +227,186 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
     </div>
 
     <!-- Table -->
-    <UiCard title="Danh sách lô" :subtitle="`Tổng: ${paginator?.total ?? list.length} lô`" data-aos="fade-up" data-aos-delay="200">
+    <UiCard
+      title="Danh sách lô"
+      :subtitle="`Tổng: ${paginator?.total ?? list.length} lô`"
+      data-aos="fade-up" data-aos-delay="200">
       <UiTable :headers="headers">
         <tr v-for="(b, i) in list" :key="b.id"
           class="hover:bg-white/3 transition"
           :class="isArchived(b) ? 'opacity-60' : ''"
           data-aos="fade-up" :data-aos-delay="200 + (i * 30)">
 
-            <!-- Mã lô -->
-            <td class="px-4 py-3">
-              <div class="font-mono text-brand-300 font-bold text-sm">{{ b.code }}</div>
-              <div v-if="b.batch_type && b.batch_type !== 'original'"
-                class="text-[10px] mt-0.5"
-                :class="{
-                  'text-purple-400': b.batch_type === 'merged',
-                  'text-amber-400':  b.batch_type === 'split',
-                  'text-blue-400':   b.batch_type === 'received',
-                }">
-                {{ batchTypeLabel(b.batch_type) }}
-              </div>
-            </td>
+          <!-- Mã lô -->
+          <td class="px-4 py-3">
+            <div class="font-mono text-brand-300 font-bold text-sm">{{ b.code }}</div>
+            <div v-if="b.batch_type && b.batch_type !== 'original'"
+              class="text-[10px] mt-0.5"
+              :class="{
+                'text-purple-400': b.batch_type === 'merged',
+                'text-amber-400':  b.batch_type === 'split',
+                'text-blue-400':   b.batch_type === 'received',
+              }">
+              {{ batchTypeLabel(b.batch_type) }}
+            </div>
+          </td>
 
-            <!-- Sản phẩm -->
-            <td class="px-4 py-3">
-              <div class="text-white/90 font-semibold text-sm">{{ b.product_name }}</div>
-            </td>
+          <!-- Sản phẩm -->
+          <td class="px-4 py-3">
+            <div class="text-white/90 font-semibold text-sm">{{ b.product_name }}</div>
+          </td>
 
-            <!-- Chứng chỉ -->
-            <td class="px-4 py-3">
-              <div v-if="b.certificates?.length" class="flex flex-wrap gap-1">
-                <span v-for="cert in b.certificates" :key="cert.id"
-                  class="text-[10px] px-1.5 py-0.5 rounded border border-brand-500/30 bg-brand-500/10 text-brand-300">
-                  {{ cert.name }}
-                </span>
-              </div>
-              <span v-else class="text-white/25 text-xs">—</span>
-            </td>
+          <!-- Chứng chỉ -->
+          <td class="px-4 py-3">
+            <div v-if="b.certificates?.length" class="flex flex-wrap gap-1">
+              <span v-for="cert in b.certificates" :key="cert.id"
+                class="text-[10px] px-1.5 py-0.5 rounded border border-brand-500/30 bg-brand-500/10 text-brand-300">
+                {{ cert.name }}
+              </span>
+            </div>
+            <span v-else class="text-white/25 text-xs">—</span>
+          </td>
 
-            <!-- Số lượng -->
-            <td class="px-4 py-3 text-sm">
-              <div v-if="b.quantity" class="text-white/80">
-                {{ b.current_quantity ?? b.quantity }}
-                <span class="text-white/40 text-xs">{{ b.unit }}</span>
-              </div>
-              <div v-if="b.current_quantity != null && b.quantity && b.current_quantity !== b.quantity"
-                class="text-[10px] text-white/30">
-                gốc: {{ b.quantity }}
-              </div>
-              <span v-if="!b.quantity" class="text-white/25 text-xs">—</span>
-            </td>
+          <!-- Số lượng -->
+          <td class="px-4 py-3 text-sm">
+            <div v-if="b.quantity" class="text-white/80">
+              {{ b.current_quantity ?? b.quantity }}
+              <span class="text-white/40 text-xs">{{ b.unit }}</span>
+            </div>
+            <div v-if="b.current_quantity != null && b.quantity && b.current_quantity !== b.quantity"
+              class="text-[10px] text-white/30">
+              gốc: {{ b.quantity }}
+            </div>
+            <span v-if="!b.quantity" class="text-white/25 text-xs">—</span>
+          </td>
 
-            <!-- Trạng thái -->
-            <td class="px-4 py-3 text-sm" :class="statusCls(b.status)">
-              {{ statusLabel(b.status) }}
-            </td>
+          <!-- Trạng thái -->
+          <td class="px-4 py-3 text-sm" :class="statusCls(b.status)">
+            {{ statusLabel(b.status) }}
+          </td>
 
-            <!-- Sự kiện -->
-            <td class="px-4 py-3 text-white/60 text-sm text-center">{{ b.events_count ?? 0 }}</td>
+          <!-- Sự kiện -->
+          <td class="px-4 py-3 text-white/60 text-sm text-center">
+            {{ b.events_count ?? 0 }}
+          </td>
 
-            <!-- Thao tác -->
-            <td class="px-4 py-3">
-              <div class="flex items-center gap-1">
-                <!-- Sửa -->
-                <button 
-                  @click="openEdit(b)"
-                  title="Chỉnh sửa thông tin lô"
-                  class="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all active:scale-90"
-                >
-                  <PencilSquareIcon class="w-5 h-5" />
-                </button>
+          <!-- Thao tác -->
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-1">
 
-                <!-- QR -->
-                <a :href="route('batches.qrs', b.id)" title="Quản lý mã QR">
-                  <div class="p-2 rounded-lg text-white/40 hover:text-brand-400 hover:bg-brand-500/10 transition-all active:scale-90">
-                    <QrCodeIcon class="w-5 h-5" />
+              <!-- Sửa -->
+              <button @click="openEdit(b)" title="Chỉnh sửa"
+                class="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition active:scale-90">
+                <PencilSquareIcon class="w-5 h-5" />
+              </button>
+
+              <!-- QR -->
+              <a :href="route('batches.qrs', b.id)" title="Quản lý mã QR">
+                <div class="p-2 rounded-lg text-white/40 hover:text-brand-400 hover:bg-brand-500/10 transition active:scale-90">
+                  <QrCodeIcon class="w-5 h-5" />
+                </div>
+              </a>
+
+              <!-- Phả hệ -->
+              <a :href="route('batches.lineage', b.id)" title="Xem phả hệ">
+                <div class="p-2 rounded-lg text-white/40 hover:text-sky-400 hover:bg-sky-500/10 transition active:scale-90">
+                  <ArchiveBoxIcon class="w-5 h-5" />
+                </div>
+              </a>
+
+              <template v-if="canOperate(b)">
+                <!-- Tách lô -->
+                <a :href="route('batches.split.show', b.id)" title="Tách lô">
+                  <div class="p-2 rounded-lg text-white/40 hover:text-amber-400 hover:bg-amber-500/10 transition active:scale-90">
+                    <ScissorsIcon class="w-5 h-5" />
                   </div>
                 </a>
 
-                <!-- Các thao tác biến đổi (chỉ hiện khi active) -->
-                <template v-if="canOperate(b)">
-                  <a :href="route('batches.split.show', b.id)" title="Tách lô hàng">
-                    <div class="p-2 rounded-lg text-white/40 hover:text-amber-400 hover:bg-amber-500/10 transition-all active:scale-90">
-                      <ScissorsIcon class="w-5 h-5" />
-                    </div>
-                  </a>
-                  <a :href="route('batches.transfer.show', b.id)" title="Chuyển giao cho đơn vị khác">
-                    <div class="p-2 rounded-lg text-white/40 hover:text-blue-400 hover:bg-blue-500/10 transition-all active:scale-90">
-                      <TruckIcon class="w-5 h-5" />
-                    </div>
-                  </a>
-                  <button 
-                    @click="openRecall(b)"
-                    title="Phát lệnh THU HỒI khẩn cấp"
-                    class="p-2 rounded-lg text-white/40 hover:text-red-500 hover:bg-red-500/10 transition-all active:scale-90"
-                  >
-                    <ExclamationTriangleIcon class="w-5 h-5" />
-                  </button>
-                </template>
-                
-                <!-- Giải quyết thu hồi -->
-                <button 
-                  v-if="b.status === 'recalled'"
-                  @click="openResolve(b)"
-                  title="Xác nhận đã xử lý xong thu hồi"
-                  class="p-2 rounded-lg text-green-500/40 hover:text-green-400 hover:bg-green-500/10 transition-all active:scale-90"
-                >
-                  <CheckCircleIcon class="w-5 h-5" />
-                </button>
+                <!-- Chuyển giao — redirect sang events.transfer.out.create -->
+                <a :href="route('batches.transfer.show', b.id)" title="Chuyển giao">
+                  <div class="p-2 rounded-lg text-white/40 hover:text-blue-400 hover:bg-blue-500/10 transition active:scale-90">
+                    <TruckIcon class="w-5 h-5" />
+                  </div>
+                </a>
 
-                <!-- Xóa -->
-                <button 
-                  @click="removeBatch(b)"
-                  title="Xóa lô hàng"
-                  class="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/5 transition-all active:scale-90 ml-auto"
-                >
-                  <TrashIcon class="w-4 h-4" />
+                <!-- Thu hồi -->
+                <button @click="openRecall(b)" title="Phát lệnh thu hồi"
+                  class="p-2 rounded-lg text-white/40 hover:text-red-500 hover:bg-red-500/10 transition active:scale-90">
+                  <ExclamationTriangleIcon class="w-5 h-5" />
                 </button>
-              </div>
-            </td>
-          </tr>
+              </template>
 
-        <tr v-if="!list.length">
-          <td colspan="7" class="p-8 text-center text-white/40">Chưa có lô nào.</td>
+              <!-- Xử lý thu hồi -->
+              <button v-if="b.status === 'recalled'" @click="openResolve(b)" title="Xử lý thu hồi"
+                class="p-2 rounded-lg text-white/40 hover:text-green-500 hover:bg-green-500/10 transition active:scale-90">
+                <CheckCircleIcon class="w-5 h-5" />
+              </button>
+
+              <!-- Xóa -->
+              <button @click="removeBatch(b)" title="Xóa lô"
+                class="p-2 rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 transition active:scale-90">
+                <TrashIcon class="w-5 h-5" />
+              </button>
+            </div>
+          </td>
         </tr>
       </UiTable>
 
       <!-- Pagination -->
-      <div v-if="paginator && paginator.last_page > 1"
-        class="flex items-center justify-between mt-4 text-sm">
-        <div class="text-white/50">
-          Hiển thị {{ paginator.from ?? 0 }}–{{ paginator.to ?? 0 }} / {{ paginator.total ?? 0 }}
-        </div>
-        <div class="flex gap-2">
-          <UiButton variant="outline" size="sm" :disabled="!paginator.prev_page_url" @click="prevPage">Trước</UiButton>
-          <UiButton variant="outline" size="sm" :disabled="!paginator.next_page_url" @click="nextPage">Sau</UiButton>
-        </div>
+      <div v-if="paginator?.last_page > 1" class="flex items-center justify-between pt-4 border-t border-glass">
+        <button @click="prevPage" :disabled="!paginator.prev_page_url"
+          class="text-xs px-3 py-1.5 rounded-lg border border-glass text-white/50 disabled:opacity-30 hover:bg-white/5 transition">
+          ‹ Trước
+        </button>
+        <span class="text-xs text-white/30">{{ paginator.current_page }} / {{ paginator.last_page }}</span>
+        <button @click="nextPage" :disabled="!paginator.next_page_url"
+          class="text-xs px-3 py-1.5 rounded-lg border border-glass text-white/50 disabled:opacity-30 hover:bg-white/5 transition">
+          Sau ›
+        </button>
       </div>
     </UiCard>
-
   </div>
 
-  <!-- ── Modal: Thu hồi lô hàng (Recall) ──────────────── -->
-  <UiModal :show="showRecall" title="Phát lệnh thu hồi sản phẩm" @close="showRecall = false">
+  <!-- ── Modal: Thu hồi ────────────────────────────────── -->
+  <UiModal :show="showRecall" title="⚠️ Phát lệnh thu hồi lô hàng" @close="showRecall = false">
     <div class="space-y-4">
-      <div class="p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
-        <div class="text-xs font-bold text-red-400 uppercase tracking-widest flex items-center gap-2 mb-1">
-          <span class="animate-pulse">🚨</span> Cảnh báo quan trọng
-        </div>
-        <p class="text-[11px] text-red-200/70 leading-relaxed">
-          Lệnh thu hồi sẽ được công bố công khai và ghi nhận <strong class="text-red-300">bất biến trên Blockchain/IPFS</strong>. 
-          Toàn bộ các lô hậu duệ liên quan cũng sẽ bị ảnh hưởng.
-        </p>
+      <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
+        Lô <span class="font-mono font-bold">{{ recalling?.code }}</span> sẽ bị đánh dấu
+        <strong>thu hồi</strong> và không thể sử dụng tiếp.
       </div>
-
-      <div class="space-y-1">
-        <label class="text-[10px] text-white/30 uppercase font-bold tracking-widest">Lô hàng bị thu hồi</label>
-        <div class="font-mono text-white text-sm font-bold bg-white/5 px-3 py-2 rounded-xl border border-white/10 italic">
-          {{ recalling?.code }} — {{ recalling?.product_name }}
-        </div>
-      </div>
-
-      <UiInput 
-        label="Lý do thu hồi *" 
-        v-model="recallForm.reason" 
-        :error="recallForm.errors.reason" 
-        placeholder="VD: Phát hiện dư lượng thuốc trừ sâu vượt mức..." 
-      />
-
-      <div>
-        <label class="block text-xs text-white/50 mb-1.5 font-medium">Hướng dẫn xử lý (Notice)</label>
-        <textarea 
-          v-model="recallForm.notice_content"
-          rows="3"
-          class="w-full bg-black/20 border border-glass rounded-2xl px-4 py-3 text-sm text-white/90 placeholder:text-white/20 focus:border-brand-500 outline-none transition-all"
-          placeholder="VD: Khách hàng vui lòng mang sản phẩm đến điểm bán gần nhất để được hoàn tiền 100%..."
-        ></textarea>
-        <div v-if="recallForm.errors.notice_content" class="text-red-400 text-xs mt-1">{{ recallForm.errors.notice_content }}</div>
-      </div>
+      <UiInput label="Lý do thu hồi *" v-model="recallForm.reason"
+        :error="recallForm.errors.reason"
+        placeholder="VD: Phát hiện dư lượng thuốc vượt ngưỡng..." />
+      <UiInput label="Nội dung thông báo (tùy chọn)" v-model="recallForm.notice_content"
+        :error="recallForm.errors.notice_content"
+        placeholder="Nội dung email gửi đến chuỗi cung ứng..." />
     </div>
     <template #actions>
-      <UiButton variant="outline" size="sm" @click="showRecall = false">Hủy</UiButton>
-      <UiButton :disabled="recallForm.processing" class="bg-red-600 hover:bg-red-700 text-white font-black" @click="submitRecall">
-        {{ recallForm.processing ? 'Đang thực hiện...' : 'XÁC NHẬN THU HỒI' }}
+      <UiButton variant="outline" size="sm" @click="showRecall = false">Huỷ</UiButton>
+      <UiButton :disabled="recallForm.processing"
+        class="bg-red-600 hover:bg-red-700 text-white border-0"
+        @click="submitRecall">
+        {{ recallForm.processing ? 'Đang xử lý...' : 'Xác nhận thu hồi' }}
       </UiButton>
     </template>
   </UiModal>
 
-  <!-- ── Modal: Giải quyết thu hồi (Resolve) ──────────── -->
-  <UiModal :show="showResolve" title="Giải quyết lệnh thu hồi" @close="showResolve = false">
+  <!-- ── Modal: Xử lý thu hồi ──────────────────────────── -->
+  <UiModal :show="showResolve" title="✅ Xử lý lô bị thu hồi" @close="showResolve = false">
     <div class="space-y-4">
-      <p class="text-xs text-white/50 leading-relaxed">
-        Sử dụng tính năng này khi sự cố đã được khắc phục hoàn toàn và lô hàng có thể tiếp tục lưu thông (nếu phù hợp).
-      </p>
-      
-      <UiInput 
-        label="Ghi chú xử lý" 
-        v-model="resolveForm.resolved_note" 
-        :error="resolveForm.errors.resolved_note" 
-        placeholder="VD: Đã kiểm định lại, các chỉ số đạt an toàn..." 
-      />
+      <div class="p-3 rounded-xl bg-white/5 border border-glass text-white/60 text-sm">
+        Xác nhận đã xử lý xong lô
+        <span class="font-mono text-brand-300 font-bold">{{ recalling?.code }}</span>.
+      </div>
+      <UiInput label="Ghi chú xử lý" v-model="resolveForm.resolved_note"
+        :error="resolveForm.errors.resolved_note"
+        placeholder="VD: Đã kiểm định lại, các chỉ số đạt an toàn..." />
     </div>
     <template #actions>
-      <UiButton variant="outline" size="sm" @click="showResolve = false">Hủy</UiButton>
-      <UiButton :disabled="resolveForm.processing" class="bg-green-600 hover:bg-green-700 text-white" @click="submitResolve">
+      <UiButton variant="outline" size="sm" @click="showResolve = false">Huỷ</UiButton>
+      <UiButton :disabled="resolveForm.processing"
+        class="bg-green-600 hover:bg-green-700 text-white border-0"
+        @click="submitResolve">
         {{ resolveForm.processing ? 'Đang lưu...' : 'Xác nhận xử lý xong' }}
       </UiButton>
     </template>
@@ -442,12 +424,14 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
             {{ p.name }}{{ p.gtin ? ` (${p.gtin})` : '' }}
           </option>
         </select>
-        <div v-if="createForm.errors.product_id" class="text-red-400 text-xs mt-1">{{ createForm.errors.product_id }}</div>
+        <div v-if="createForm.errors.product_id" class="text-red-400 text-xs mt-1">
+          {{ createForm.errors.product_id }}
+        </div>
       </div>
 
-      <!-- Prefix preview -->
       <div v-if="createForm.product_id" class="text-xs text-white/40">
-        Mã lô sẽ có dạng: <span class="font-mono text-brand-300">{{ getCodePrefix(createForm.product_id) }}-XXXXXX</span>
+        Mã lô sẽ có dạng:
+        <span class="font-mono text-brand-300">{{ getCodePrefix(createForm.product_id) }}-XXXXXX</span>
       </div>
 
       <div class="grid grid-cols-2 gap-4">
@@ -462,19 +446,16 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
       <!-- Chứng chỉ -->
       <div>
         <label class="block text-xs text-white/50 mb-1.5">Chứng chỉ / Tiêu chuẩn áp dụng</label>
-        <div v-if="certificates.length === 0" class="text-[10px] text-white/30 italic">
-          Chưa có chứng chỉ nào trong hệ thống. <a :href="route('certificates.index')" class="text-brand-400 hover:underline">Quản lý chứng chỉ tại đây.</a>
+        <div v-if="!certificates.length" class="text-[10px] text-white/30 italic">
+          Chưa có chứng chỉ nào. Vào mục Chứng chỉ để thêm.
         </div>
         <div v-else class="flex flex-wrap gap-2">
-          <button
-            v-for="cert in certificates" :key="cert.id"
-            type="button"
-            @click="toggleCreateCert(cert.id)"
+          <button v-for="cert in certificates" :key="cert.id"
+            type="button" @click="toggleCreateCert(cert.id)"
             class="flex flex-col px-3 py-2 rounded-xl border text-left transition"
             :class="createForm.certificate_ids.includes(cert.id)
               ? 'border-brand-500/60 bg-brand-500/15'
-              : 'border-glass bg-white/5 hover:bg-white/8'"
-          >
+              : 'border-glass bg-white/5 hover:bg-white/8'">
             <span class="text-xs font-semibold"
               :class="createForm.certificate_ids.includes(cert.id) ? 'text-brand-300' : 'text-white/70'">
               {{ cert.name }}
@@ -483,7 +464,6 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
           </button>
         </div>
       </div>
-
     </div>
     <template #actions>
       <UiButton variant="outline" size="sm" @click="showCreate = false">Huỷ</UiButton>
@@ -523,19 +503,16 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
 
       <div>
         <label class="block text-xs text-white/50 mb-1.5">Chứng chỉ / Tiêu chuẩn áp dụng</label>
-        <div v-if="certificates.length === 0" class="text-[10px] text-white/30 italic">
-          Chưa có chứng chỉ nào trong hệ thống.
+        <div v-if="!certificates.length" class="text-[10px] text-white/30 italic">
+          Chưa có chứng chỉ nào.
         </div>
         <div v-else class="flex flex-wrap gap-2">
-          <button
-            v-for="cert in certificates" :key="cert.id"
-            type="button"
-            @click="toggleEditCert(cert.id)"
+          <button v-for="cert in certificates" :key="cert.id"
+            type="button" @click="toggleEditCert(cert.id)"
             class="flex flex-col px-3 py-2 rounded-xl border text-left transition"
             :class="editForm.certificate_ids.includes(cert.id)
               ? 'border-brand-500/60 bg-brand-500/15'
-              : 'border-glass bg-white/5 hover:bg-white/8'"
-          >
+              : 'border-glass bg-white/5 hover:bg-white/8'">
             <span class="text-xs font-semibold"
               :class="editForm.certificate_ids.includes(cert.id) ? 'text-brand-300' : 'text-white/70'">
               {{ cert.name }}
@@ -544,7 +521,6 @@ const isArchived = (b) => ['consumed', 'split', 'recalled'].includes(b.status)
           </button>
         </div>
       </div>
-
     </div>
     <template #actions>
       <UiButton variant="outline" size="sm" @click="showEdit = false">Huỷ</UiButton>

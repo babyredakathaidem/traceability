@@ -55,29 +55,78 @@ const maxTopScan = computed(() => Math.max(...props.topBatches.map(b => b.scan_c
   <div class="space-y-6">
 
     <!-- Header -->
-    <div>
-      <div class="text-xs text-white/40 uppercase tracking-widest">Dashboard</div>
-      <div class="text-2xl font-extrabold text-white/90 mt-1">Xin chào, {{ user?.name }}</div>
-      <div class="text-sm text-white/40 mt-0.5">
-        {{ user?.role === 'enterprise_admin' ? 'Admin Doanh nghiệp' : 'Nhân viên Doanh nghiệp' }}
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <div class="text-xs text-white/40 uppercase tracking-widest">Dashboard</div>
+        <div class="text-2xl font-extrabold text-white/90 mt-1">Xin chào, {{ user?.name }}</div>
+        <div class="text-sm text-white/40 mt-0.5">
+          {{ user?.role === 'enterprise_admin' ? 'Admin Doanh nghiệp' : 'Nhân viên Doanh nghiệp' }}
+        </div>
       </div>
     </div>
 
-    <!-- Stat cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-      <Link href="/products" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block" data-aos="fade-up" data-aos-delay="100">
-        <div class="text-xs text-white/40 uppercase tracking-wider">Sản phẩm</div>
-        <div class="text-3xl font-extrabold text-white/90 mt-2">{{ stats.products ?? 0 }}</div>
-        <div class="text-xs text-white/40 mt-1">đang quản lý</div>
+    <!-- Quick Actions — Lối tắt ghi sự kiện nhanh -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" data-aos="fade-down">
+      <Link :href="route('transfer.in.create')" 
+        class="group p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-all duration-300 flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+          </svg>
+        </div>
+        <div>
+          <div class="text-sm font-bold text-emerald-400">Nhập hàng</div>
+          <div class="text-[10px] text-white/40 uppercase font-bold tracking-tighter">Tạo lô nguyên liệu mới</div>
+        </div>
       </Link>
 
-      <Link href="/batches" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block" data-aos="fade-up" data-aos-delay="200">
-        <div class="text-xs text-white/40 uppercase tracking-wider">Lô hàng</div>
-        <div class="text-3xl font-extrabold text-white/90 mt-2">{{ stats.batches?.total ?? 0 }}</div>
+      <Link :href="route('transformation-events.create')" 
+        class="group p-4 rounded-2xl border border-brand-500/30 bg-brand-500/5 hover:bg-brand-500/10 hover:border-brand-500/50 transition-all duration-300 flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-brand-500/20 flex items-center justify-center text-brand-400 group-hover:scale-110 transition-transform">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          </svg>
+        </div>
+        <div>
+          <div class="text-sm font-bold text-brand-400">Chế biến / Thu hoạch</div>
+          <div class="text-[10px] text-white/40 uppercase font-bold tracking-tighter">Từ lô cũ → đẻ lô mới</div>
+        </div>
+      </Link>
+
+      <Link :href="route('transfer.out.create')" 
+        class="group p-4 rounded-2xl border border-purple-500/30 bg-purple-500/5 hover:bg-purple-500/10 hover:border-purple-500/50 transition-all duration-300 flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-400 group-hover:scale-110 transition-transform">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+          </svg>
+        </div>
+        <div>
+          <div class="text-sm font-bold text-purple-400">Chuyển giao đi</div>
+          <div class="text-[10px] text-white/40 uppercase font-bold tracking-tighter">Gửi hàng cho đối tác</div>
+        </div>
+      </Link>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+
+      <Link href="/products" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block shadow-lg" data-aos="fade-up" data-aos-delay="100">
+        <div class="text-[10px] text-white/40 uppercase tracking-widest font-black">Sản phẩm</div>
+        <div class="text-3xl font-black text-white mt-2">{{ stats.products ?? 0 }}</div>
+        <div class="text-[10px] text-white/20 mt-1 uppercase font-bold">Danh mục</div>
+      </Link>
+
+      <Link href="/trace-locations" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block shadow-lg border-l-brand-500/30" data-aos="fade-up" data-aos-delay="150">
+        <div class="text-[10px] text-brand-400 uppercase tracking-widest font-black">Địa điểm</div>
+        <div class="text-3xl font-black text-white mt-2">{{ stats.locations_count ?? 0 }}</div>
+        <div class="text-[10px] text-white/20 mt-1 uppercase font-bold">Ruộng & Kho</div>
+      </Link>
+
+      <Link href="/batches" class="bg-white/5 border border-glass rounded-2xl p-5 hover:bg-white/8 hover:-translate-y-1 transition-all duration-300 block shadow-lg" data-aos="fade-up" data-aos-delay="200">
+        <div class="text-[10px] text-white/40 uppercase tracking-widest font-black">Lô hàng</div>
+        <div class="text-3xl font-black text-white mt-2">{{ stats.batches?.total ?? 0 }}</div>
         <div class="flex gap-2 mt-2 flex-wrap">
-          <span class="text-xs text-green-400">{{ stats.batches?.active ?? 0 }} hoạt động</span>
-          <span v-if="stats.batches?.recalled" class="text-xs text-red-400">{{ stats.batches?.recalled }} thu hồi</span>
+          <span class="text-[9px] font-bold text-green-400 uppercase bg-green-400/10 px-1 rounded">{{ stats.batches?.active ?? 0 }} ACT</span>
         </div>
       </Link>
 
